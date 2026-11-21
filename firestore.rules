@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn() && request.auth.token.email == 'bear4jesus@gmail.com' && request.auth.token.email_verified == true;
+    }
+    function roomHost(room) {
+      return get(/databases/$(database)/documents/rooms/$(room)).data.hostUid;
+    }
+
+    match /config/{id} { allow read: if true; allow write: if isAdmin(); }
+    match /assets/{id} { allow read: if true; allow write: if isAdmin(); }
+    match /courses/{id} { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /verses/{id} { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /teams/{id} { allow read: if signedIn(); allow write: if isAdmin(); }
+
+    match /users/{code} {
+      allow get: if signedIn();
+      allow list, write: if isAdmin();
+    }
+    match /progress/{code} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow write: if isAdmin() || (signedIn() && exists(/databases/$(database)/documents/users/$(code)));
+    }
+
+    match /rooms/{room} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.hostUid == request.auth.uid;
+      allow update, delete: if signedIn() && (resource.data.hostUid == request.auth.uid || isAdmin());
+      match /players/{uid} {
+        allow read: if signedIn();
+        allow create, update: if signedIn() && (request.auth.uid == uid || roomHost(room) == request.auth.uid);
+        allow delete: if signedIn() && (roomHost(room) == request.auth.uid || isAdmin());
+      }
+    }
+
+    match /history/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if isAdmin();
+    }
+  }
+}
