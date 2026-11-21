@@ -15,6 +15,24 @@ function runCleanup() { cleanup.forEach((f) => { try { f(); } catch (e) {} }); c
 
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.installEvt = e; });
 
+// 자판이 올라오면 화면을 자판 위 공간에 맞춰 줄이기
+(function keyboardFit() {
+  const vv = window.visualViewport; if (!vv) return;
+  const html = document.documentElement; let base = window.innerHeight;
+  const upd = () => {
+    if (!document.activeElement || !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) base = Math.max(base, vv.height);
+    const open = vv.height < base - 120 && /INPUT|TEXTAREA/.test((document.activeElement || {}).tagName || '');
+    html.classList.toggle('kb-open', open);
+    html.style.setProperty('--vvh', vv.height + 'px');
+    html.style.setProperty('--vvt', vv.offsetTop + 'px');
+    if (open) { const cur = document.querySelector('.w.cur, .w.blank.cur'); if (cur) cur.scrollIntoView({ block: 'nearest' }); }
+  };
+  vv.addEventListener('resize', upd); vv.addEventListener('scroll', upd);
+  document.addEventListener('focusin', () => setTimeout(upd, 300));
+  document.addEventListener('focusout', () => setTimeout(upd, 300));
+  window.addEventListener('orientationchange', () => { base = 0; setTimeout(() => { base = window.innerHeight; upd(); }, 400); });
+})();
+
 /* ───────── 시작 ───────── */
 (async function boot() {
   const cs = cachedSettings(); if (cs) applyLook(cs);
