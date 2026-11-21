@@ -284,7 +284,8 @@ export const IC = {
   image: 'M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21',
   key: 'M15 7a4 4 0 1 1-3.5 6L4 20.5V17h3v-3h3l1.5-1.5A4 4 0 0 1 15 7z',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
-  search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3'
+  search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
+  qr: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4z'
 };
 export const icon = (name, size = 20, extra = '') => `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" ${extra}><path d="${IC[name] || ''}"/></svg>`;
 

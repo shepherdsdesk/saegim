@@ -581,21 +581,26 @@ async function certificate(c) {
 async function viewBattle(code) {
   if (!code) {
     root.innerHTML = `<div class="${S.user ? 'shell' : ''}">${S.user ? topbar(streakHTML()) : ''}<main class="main fade-in" style="${S.user ? '' : 'padding-top:48px'}">
-      <section class="sec"><span class="eyebrow ac">말씀 대전</span><h1 class="head" style="font-size:calc(28px * var(--k));margin:12px 0 0">방 코드를 입력하세요</h1>
-      <p class="muted" style="margin:10px 0 0">TV 화면에 보이는 6자리 숫자입니다.</p></section>
+      <section class="sec"><span class="eyebrow ac">말씀 대전</span><h1 class="head" style="font-size:calc(28px * var(--k));margin:12px 0 0">대전에 들어가기</h1>
+      <p class="muted" style="margin:10px 0 0">TV의 QR을 찍거나, 6자리 방 코드를 넣어 주세요.</p></section>
       <form id="jf" style="display:flex;flex-direction:column;gap:16px">
-        <input class="input code-input" id="rc" inputmode="numeric" maxlength="6" placeholder="000000" aria-label="방 코드" autocomplete="off">
         ${S.user ? '' : `<div class="field"><label for="gn">이름</label><input class="input" id="gn" placeholder="대전에서 보일 이름" maxlength="10" value="${esc((LS.get('guest') || {}).name || '')}"></div>`}
-        <button class="btn pr block" type="submit">입장하기</button>
+        <button class="btn pr block" type="button" id="qr">${icon('qr', 20)}QR 찍어서 들어가기</button>
+        <div style="display:flex;align-items:center;gap:12px;color:var(--sub);font-size:12px"><span class="hair" style="flex:1"></span>또는 방 코드<span class="hair" style="flex:1"></span></div>
+        <input class="input code-input" id="rc" inputmode="numeric" maxlength="6" placeholder="000000" aria-label="방 코드" autocomplete="off">
+        <button class="btn block" type="submit">코드로 들어가기</button>
+        <div class="list-row" style="border-bottom:none"><div class="l"><b>대전 소리</b><span>답 보낼 때와 결과 소리·진동</span></div><button type="button" class="switch ${phoneSound() ? 'on' : ''}" id="ps" aria-label="대전 소리" aria-pressed="${phoneSound()}"></button></div>
         ${S.user ? '' : '<a class="btn ghost block" href="#">로그인 화면으로</a>'}
       </form>${S.user ? '' : credit()}</main>${S.user ? tabbar('battle') : ''}</div>`;
-    $('#rc').focus();
+    const guestOk = () => { if (S.user) return true; const n = $('#gn').value.trim(); if (!n) { toast('이름을 먼저 적어 주세요'); $('#gn').focus(); return false; } LS.set('guest', { name: n }); return true; };
     $('#jf').onsubmit = (e) => {
       e.preventDefault(); const c = $('#rc').value.replace(/\D/g, '');
       if (c.length !== 6) return toast('6자리 숫자를 입력해 주세요');
-      if (!S.user) { const n = $('#gn').value.trim(); if (!n) return toast('이름을 적어 주세요'); LS.set('guest', { name: n }); }
+      if (!guestOk()) return;
       go('#battle/' + c);
     };
+    $('#qr').onclick = () => { if (guestOk()) scanQR((c) => go('#battle/' + c)); };
+    $('#ps').onclick = (e) => { const on = !phoneSound(); LS.set('phone-sound', on); e.currentTarget.classList.toggle('on', on); e.currentTarget.setAttribute('aria-pressed', String(on)); if (on) { Sound.unlock(); Sound.configure({ sfx: true, bgm: false, volume: 0.6 }); Sound.click(); } };
     return;
   }
   const room = await DB.get('rooms/' + code).catch(() => null);
@@ -643,7 +648,7 @@ function renderBattle(code, r, me) {
   if (r.status === 'end') return wait(rank ? `${rank}위 · ${fmt(myScore)}점` : '대전이 끝났습니다', '수고하셨습니다');
   if (r.status === 'reveal') {
     if (out) return wait('탈락했지만<br>끝까지 응원해 주세요', '노아의 방주 밖');
-    if (res && renderBattle._snd !== code + r.qi) { renderBattle._snd = code + r.qi; if (res.ok) { Sound.correct(); Sound.vibrate([40, 40, 40]); } else { Sound.wrong(); Sound.vibrate(160); } }
+    if (res && phoneSound() && renderBattle._snd !== code + r.qi) { renderBattle._snd = code + r.qi; if (res.ok) { Sound.correct(); Sound.vibrate([40, 40, 40]); } else { Sound.wrong(); Sound.vibrate(160); } }
     return wait(res ? (res.ok ? `정답입니다<br><span class="num" style="color:var(--ac)">+${fmt(res.gain)}</span>` : '아쉽지만<br>다음 문제에서') : '답을 보내지 못했어요', '결과');
   }
   if (r.status !== 'q') return;
@@ -651,7 +656,7 @@ function renderBattle(code, r, me) {
   const q = r.questions[r.qi];
   const ansKey = 'ans.q' + r.qi;
   const pPath = `rooms/${code}/players/${S.uid}`;
-  const send = async (val) => { Sound.configure({ sfx: (S.settings.battle || {}).sound !== false, bgm: false, volume: 0.6 }); Sound.unlock(); Sound.click(); Sound.vibrate(25); await DB.update(pPath, { [ansKey]: { v: val, at: op.now() } }); };
+  const send = async (val) => { Sound.configure({ sfx: phoneSound(), bgm: false, volume: 0.6 }); Sound.unlock(); Sound.click(); Sound.vibrate(25); await DB.update(pPath, { [ansKey]: { v: val, at: op.now() } }); };
   const dur = (r.time || 20) * 1000; const started = Date.now();
   const timer = `<div class="bt-timer"><div class="bar"><i id="tb" style="width:100%"></i></div><span class="head num" id="tt" style="font-size:14px;text-align:right">${r.time || 20}초</span></div>`;
   const body = (html) => { root.innerHTML = `<div class="bt">${header}${timer}<div class="bt-body fade-in">${html}</div></div>`; };
@@ -697,4 +702,53 @@ function renderBattle(code, r, me) {
     if (left <= 0) clearInterval(tickHandle);
   }, 250);
   addCleanup(() => clearInterval(tickHandle));
+}
+
+/* ───────── 대전 소리 · QR 찍기 ───────── */
+function phoneSound() { const v = LS.get('phone-sound'); return v == null ? (S.settings.battle || {}).sound !== false : !!v; }
+function loadJsQR() {
+  if (window.jsQR) return Promise.resolve();
+  return new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'vendor/jsqr.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+}
+function roomFromText(t) {
+  const m = String(t).match(/[?&#]room=(\d{6})/) || String(t).match(/battle\/(\d{6})/) || String(t).match(/^\s*(\d{6})\s*$/);
+  return m ? m[1] : null;
+}
+async function scanQR(onCode) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return toast('이 기기에서는 카메라를 쓸 수 없습니다. 방 코드를 넣어 주세요');
+  let stream = null, raf = 0, stopped = false;
+  const close = modal(`<div class="scan"><div class="scan-view"><video id="sv" playsinline muted></video><i class="scan-frame"></i></div>
+    <h3 style="margin-top:20px">TV의 QR을 비춰 주세요</h3><p class="muted small" id="sm" style="margin:0">카메라를 켜는 중…</p>
+    <div class="actions"><button class="btn md block" data-close id="sc">닫기</button></div></div>`, {
+    onMount(el) { el.classList.add('scan-modal'); el.parentElement.addEventListener('click', (e) => { if (e.target.closest('[data-close]') || e.target === el.parentElement) stop(); }); }
+  });
+  const stop = () => { stopped = true; cancelAnimationFrame(raf); if (stream) stream.getTracks().forEach((t) => t.stop()); };
+  try {
+    const [st] = await Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }), loadJsQR()]);
+    stream = st; if (stopped) return stop();
+    const v = $('#sv'); v.srcObject = stream; await v.play();
+    $('#sm').textContent = '네모 안에 QR이 들어오면 자동으로 들어갑니다';
+    const cv = document.createElement('canvas'); const g = cv.getContext('2d', { willReadFrequently: true });
+    const det = 'BarcodeDetector' in window ? new window.BarcodeDetector({ formats: ['qr_code'] }) : null;
+    const loop = async () => {
+      if (stopped) return;
+      if (v.readyState >= 2) {
+        let text = null;
+        if (det) { try { const r = await det.detect(v); if (r[0]) text = r[0].rawValue; } catch (e) {} }
+        if (!text && window.jsQR) {
+          const w = Math.min(640, v.videoWidth), h = Math.round(v.videoHeight * (w / v.videoWidth));
+          cv.width = w; cv.height = h; g.drawImage(v, 0, 0, w, h);
+          const r = window.jsQR(g.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' }); if (r) text = r.data;
+        }
+        const c = text && roomFromText(text);
+        if (c) { Sound.unlock(); Sound.vibrate(40); stop(); close(); onCode(c); return; }
+        if (text) $('#sm').textContent = '새김 대전 QR이 아닙니다. TV 화면의 QR을 비춰 주세요';
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    loop();
+  } catch (e) {
+    console.error(e); stop();
+    const m = $('#sm'); if (m) m.innerHTML = '카메라를 쓸 수 없습니다. 브라우저에서 카메라 허용을 켜거나, 방 코드를 넣어 주세요.';
+  }
 }
