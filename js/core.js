@@ -130,13 +130,31 @@ export async function adminSignIn() {
   catch (e) { if (String(e.code).includes('popup')) { await F.signInWithRedirect(auth, p); return null; } throw e; }
 }
 export async function adminCheck() {
-  if (MOCK) return new URLSearchParams(location.search).get('mock') === 'admin';
+  if (MOCK) return new URLSearchParams(location.search).get('mock') === 'admin' || sessionStorage.getItem('saegim-mock-admin') === '1';
   try { await F.getRedirectResult(auth); } catch (e) { /* 무시 */ }
-  return new Promise((resolve) => {
-    const off = F.onAuthStateChanged(auth, (u) => { off(); resolve(!!(u && u.email === ADMIN_EMAIL)); });
-  });
+  const u = await whenAuthed();
+  if (u.email === ADMIN_EMAIL) return true;
+  try {
+    const sess = await DB.get('adminSessions/' + u.uid);
+    if (!sess) return false;
+    await DB.list('users', { limit: 1 }); // 관리자만 읽을 수 있음
+    return true;
+  } catch (e) { return false; }
 }
-export function adminSignOut() { return MOCK ? Promise.resolve() : F.signOut(auth); }
+// 관리자 코드로 들어가기
+export async function adminCodeSignIn(code) {
+  code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (MOCK) { if (code === 'MOCKADMIN1') { sessionStorage.setItem('saegim-mock-admin', '1'); return true; } return false; }
+  const u = await whenAuthed();
+  try { await DB.set('adminSessions/' + u.uid, { code, at: Date.now() }, false); return true; }
+  catch (e) { return false; }
+}
+export async function adminSignOut() {
+  if (MOCK) { sessionStorage.removeItem('saegim-mock-admin'); return; }
+  const u = auth.currentUser;
+  if (u && !u.email) { try { await DB.del('adminSessions/' + u.uid); } catch (e) {} }
+  return F.signOut(auth);
+}
 
 /* ───────── 기본 설정 ───────── */
 export const DEFAULTS = {

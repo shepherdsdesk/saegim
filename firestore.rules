@@ -1,10 +1,20 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // 최초 관리자 코드는 공개 저장소에 두지 않습니다. Firebase 콘솔의 규칙에만 실제 값을 넣습니다.
+    function masterCode() { return '__MASTER_CODE__'; }
     function signedIn() { return request.auth != null; }
-    function isAdmin() {
-      return signedIn() && request.auth.token.email == 'bear4jesus@gmail.com' && request.auth.token.email_verified == true;
+    function ownerAdmin() {
+      return signedIn() && request.auth.token.get('email', '') == 'bear4jesus@gmail.com' && request.auth.token.get('email_verified', false) == true;
     }
+    function sessionPath() { return /databases/$(database)/documents/adminSessions/$(request.auth.uid); }
+    function validCode(code) {
+      return code == masterCode() || exists(/databases/$(database)/documents/adminCodes/$(code));
+    }
+    function codeAdmin() {
+      return signedIn() && exists(sessionPath()) && validCode(get(sessionPath()).data.code);
+    }
+    function isAdmin() { return ownerAdmin() || codeAdmin(); }
     function roomHost(room) {
       return get(/databases/$(database)/documents/rooms/$(room)).data.hostUid;
     }
@@ -14,6 +24,15 @@ service cloud.firestore {
     match /courses/{id} { allow read: if signedIn(); allow write: if isAdmin(); }
     match /verses/{id} { allow read: if signedIn(); allow write: if isAdmin(); }
     match /teams/{id} { allow read: if signedIn(); allow write: if isAdmin(); }
+
+    // 관리자 코드: 관리자만 보고 만들고 지웁니다
+    match /adminCodes/{code} { allow read, write: if isAdmin(); }
+    // 관리자 입장 기록: 맞는 코드를 넣은 본인만 만들 수 있습니다
+    match /adminSessions/{uid} {
+      allow get, delete: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid && validCode(request.resource.data.code);
+      allow list: if isAdmin();
+    }
 
     match /users/{code} {
       allow get: if signedIn();

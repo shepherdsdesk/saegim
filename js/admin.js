@@ -1,6 +1,6 @@
 // 새김 INSCRIBE — 관리자
 import {
-  DB, op, whenAuthed, adminSignIn, adminCheck, adminSignOut, loadSettings, applySettings, markSVG, icon, esc, $, $$, toast, modal, confirmBox,
+  DB, op, whenAuthed, adminSignIn, adminCheck, adminSignOut, adminCodeSignIn, loadSettings, applySettings, markSVG, icon, esc, $, $$, toast, modal, confirmBox,
   fmt, newCode, today, THEMES, VERSE_FONTS, UI_FONTS, SIZES, STAGES, BATTLE_THEMES, TEAM_COLORS, shrinkImage, DEFAULTS, MOCK
 } from './core.js';
 
@@ -20,15 +20,25 @@ const APP_URL = () => new URL('./', location.href).href.replace(/\?.*$/, '');
 function gate(msg = '') {
   root.innerHTML = `<main class="gate"><div class="card fade-in">
     <span class="brand">${markSVG(56)}<span style="display:flex;flex-direction:column;gap:6px"><span class="brand-name" style="font-size:36px">새김</span><span class="brand-sub">관리자</span></span></span>
-    <p class="muted" style="margin:0;line-height:1.7">관리자 구글 계정으로 들어가 주세요.</p>
-    ${msg ? `<p class="verdict no" style="margin:0;color:var(--bad);font-weight:600">${esc(msg)}</p>` : ''}
-    <button class="btn pr block" id="gl">구글 계정으로 들어가기</button>
+    <form id="cf" style="display:flex;flex-direction:column;gap:16px" autocomplete="off">
+      <div class="field"><label for="ac">관리자 코드</label><input class="input code-pill" id="ac" maxlength="10" placeholder="10자리 코드" style="text-transform:uppercase;letter-spacing:.16em"></div>
+      <button class="btn pr block" type="submit">관리자로 들어가기</button>
+    </form>
+    ${msg ? `<p style="margin:0;color:var(--bad);font-weight:600;font-size:14px">${esc(msg)}</p>` : ''}
+    <div style="display:flex;align-items:center;gap:12px;color:var(--sub);font-size:12px"><span class="hair" style="flex:1"></span>또는<span class="hair" style="flex:1"></span></div>
+    <button class="btn block" id="gl">구글 계정으로 들어가기</button>
     <a class="btn ghost block" href="./">사용자 화면으로</a>
-    <p class="credit" style="font-size:12px;color:var(--sub)">만든 곳 <b style="color:var(--ink)">AI목양지원센터</b></p></div></main>`;
+    <p style="margin:0;text-align:center;font-size:12px;color:var(--sub)">만든 곳 <b style="color:var(--ink)">AI목양지원센터</b></p></div></main>`;
+  $('#ac').focus();
+  $('#cf').onsubmit = async (e) => {
+    e.preventDefault(); const b = $('#cf button'); b.disabled = true; b.textContent = '확인 중…';
+    const ok = await adminCodeSignIn($('#ac').value);
+    if (ok && (await adminCheck())) location.reload(); else gate('코드를 다시 확인해 주세요');
+  };
   $('#gl').onclick = async () => {
     try {
       const u = await adminSignIn();
-      if (u && u.email && u.email !== 'bear4jesus@gmail.com') { await adminSignOut(); return gate('관리자 계정이 아닙니다'); }
+      if (u && u.email && u.email !== 'bear4jesus@gmail.com') { await adminSignOut(); return gate('관리자로 등록된 구글 계정이 아닙니다. 관리자 코드로 들어가 주세요.'); }
       if (u) location.reload();
     } catch (e) { console.error(e); gate('로그인하지 못했습니다. 팝업 차단을 풀고 다시 눌러 주세요.'); }
   };
@@ -36,7 +46,7 @@ function gate(msg = '') {
 
 const MENU = [
   ['dash', '대시보드', 'grid'], ['courses', '코스와 말씀', 'book'], ['users', '사용자와 코드', 'users'], ['teams', '팀', 'team'],
-  ['battle', '대전 열기', 'tv'], ['report', '진도 리포트', 'chart'], ['settings', '환경 설정', 'gear']
+  ['battle', '대전 열기', 'tv'], ['report', '진도 리포트', 'chart'], ['admins', '관리자', 'key'], ['settings', '환경 설정', 'gear']
 ];
 function shell(page, head, body) {
   root.innerHTML = `<div class="ad">
@@ -59,7 +69,7 @@ async function route() {
   const page = (location.hash.replace('#', '') || 'dash').split('/')[0];
   await refresh();
   if (page === 'battle') { window.open('tv.html' + (MOCK ? '?mock' : ''), '_blank'); location.hash = '#dash'; return; }
-  ({ dash, courses, users, teams, report, settings }[page] || dash)();
+  ({ dash, courses, users, teams, report, admins, settings }[page] || dash)();
 }
 
 /* ───────── 대시보드 ───────── */
@@ -390,4 +400,34 @@ async function settings() {
     await DB.set('config/app', { ...rest, updatedAt: Date.now() });
     A.settings = s; toast('저장했습니다'); live();
   };
+}
+
+/* ───────── 관리자 ───────── */
+async function admins() {
+  const list = (await DB.list('adminCodes')).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  shell('admins', pageHead('관리자', `관리자 ${list.length + 1}명`, `<button class="btn md pr" id="add">${icon('plus', 16)}관리자 추가</button>`),
+    `<p class="muted small" style="margin:20px 0 0;line-height:1.7">관리자는 이름과 함께 받은 <b style="color:var(--ink)">10자리 관리자 코드</b>로 들어갑니다. 코드를 지우면 그 관리자는 바로 들어올 수 없게 됩니다.</p>
+    <div class="tbl"><div style="min-width:640px"><div class="tr th" style="grid-template-columns:1.2fr 1fr 160px 140px 100px"><span>이름</span><span>역할</span><span>관리자 코드</span><span>만든 날</span><span></span></div>
+      <div class="tr" style="grid-template-columns:1.2fr 1fr 160px 140px 100px"><b class="nowrap">최고 관리자</b><span class="nowrap muted">구글 계정 · 최초 코드</span><span class="muted">—</span><span class="muted">—</span><span></span></div>
+      ${list.map((a) => `<div class="tr" style="grid-template-columns:1.2fr 1fr 160px 140px 100px"><b class="nowrap">${esc(a.name)}</b><span class="nowrap">${esc(a.role || '관리자')}</span><span class="code-pill">${esc(a.id.slice(0, 5))} ${esc(a.id.slice(5))}</span><span class="num muted">${a.createdAt ? new Date(a.createdAt).toLocaleDateString('ko-KR') : ''}</span><div class="acts"><button class="icon-btn" data-copy="${a.id}" data-name="${esc(a.name)}" aria-label="안내 문구 복사">${icon('copy', 18)}</button><button class="icon-btn" data-del="${a.id}" aria-label="관리자 삭제">${icon('trash', 18)}</button></div></div>`).join('')}
+    </div></div>`);
+  const copy = (name, code) => { navigator.clipboard.writeText(`[새김 관리자 안내]\n${name} 님, 아래 주소에서 관리자 코드를 넣어 주세요.\n주소: ${new URL('admin.html', APP_URL()).href}\n관리자 코드: ${code}`); toast('안내 문구를 복사했습니다'); };
+  $('#add').onclick = () => modal(`<h3>관리자 추가</h3><div style="display:flex;flex-direction:column;gap:16px;margin-top:16px"><div class="field"><label for="an">이름</label><input class="input" id="an" placeholder="예) 김OO 전도사"></div><div class="field"><label for="ar">역할</label><input class="input" id="ar" placeholder="예) 사랑방 담당" value="관리자"></div></div><div class="actions"><button class="btn md" data-close>취소</button><button class="btn md pr" id="go">추가하고 코드 받기</button></div>`, {
+    onMount(el, close) {
+      $('#an', el).focus();
+      $('#go', el).onclick = async () => {
+        const name = $('#an', el).value.trim(); if (!name) return toast('이름을 적어 주세요');
+        let code; for (let i = 0; i < 10; i++) { code = newCode(10); if (!(await DB.get('adminCodes/' + code).catch(() => null))) break; }
+        await DB.set('adminCodes/' + code, { name, role: $('#ar', el).value.trim() || '관리자', createdAt: Date.now() }, false);
+        close();
+        modal(`<h3>${esc(name)} 님의 관리자 코드</h3><p class="code-pill" style="font-size:40px;margin:16px 0 8px">${code.slice(0, 5)} ${code.slice(5)}</p><p class="muted small" style="margin:0;line-height:1.7">관리자 화면에서 이 코드를 넣으면 들어옵니다.</p><div class="actions"><button class="btn md" id="cp">${icon('copy', 16)}안내 문구 복사</button><button class="btn md pr" data-close>확인</button></div>`, { onMount(m) { $('#cp', m).onclick = () => copy(name, code); } });
+        admins();
+      };
+    }
+  });
+  $$('[data-copy]').forEach((b) => b.onclick = () => copy(b.dataset.name, b.dataset.copy));
+  $$('[data-del]').forEach((b) => b.onclick = async () => {
+    if (!(await confirmBox('관리자 삭제', '이 코드로는 더 이상 관리자 화면에 들어올 수 없습니다.', '삭제', true))) return;
+    await DB.del('adminCodes/' + b.dataset.del); toast('지웠습니다'); admins();
+  });
 }
