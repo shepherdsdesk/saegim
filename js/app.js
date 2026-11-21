@@ -162,7 +162,7 @@ async function viewHome() {
 
   const focusHTML = focus ? `
     <section class="sec today fade-in">
-      <div class="sec-head"><span class="eyebrow ${weekly ? 'ac' : ''}">${weekly ? `<span class="pin-tag">${icon('pin', 14)}이번 주 암송</span>` : (limitHit ? '오늘 몫을 마쳤어요' : '오늘의 말씀')}</span><span class="eyebrow">${dateTxt}</span></div>
+      <div class="sec-head"><span class="eyebrow ${weekly ? 'ac' : ''}">${weekly ? `<span class="pin-tag">${icon('pin', 14)}이번 주 암송</span>` : (limitHit ? '오늘 분량을 마쳤어요' : '오늘의 말씀')}</span><span class="eyebrow">${dateTxt}</span></div>
       <div class="rule-mark" style="margin-top:14px"></div>
       <h1 class="ref head">${esc(focus.ref)}</h1>
       <p class="vtext verse">${esc(focus.text)}</p>
