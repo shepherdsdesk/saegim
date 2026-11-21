@@ -2,7 +2,7 @@
 import {
   DB, op, whenAuthed, loadSettings, applySettings, loadLogo, markSVG, icon, esc, $, $$, toast, modal,
   today, addDays, shuffle, fmt, chosung, words, norm, gradeText, gradeWord, diffHTML, scheduleNext,
-  BATTLE_MODES, registerSW, MOCK
+  BATTLE_MODES, registerSW, MOCK, missedWords, GRADE, WEAK_LINE, applyLook, cachedSettings
 } from './core.js';
 
 const root = $('#root');
@@ -16,15 +16,15 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.in
 
 /* ───────── 시작 ───────── */
 (async function boot() {
-  const u = await whenAuthed();
-  S.uid = u.uid;
-  S.settings = await loadSettings();
-  await applySettings(S.settings);
-  S.logo = await loadLogo();
+  const cs = cachedSettings(); if (cs) applyLook(cs);
+  const saved = LS.get('user');
+  const [u, settings] = await Promise.all([whenAuthed(), loadSettings()]);
+  S.uid = u.uid; S.settings = settings;
+  const [, logo] = await Promise.all([applySettings(S.settings), loadLogo(S.settings)]);
+  S.logo = logo;
   registerSW();
   const params = new URLSearchParams(location.search);
   if (params.get('room')) { location.hash = '#battle/' + params.get('room'); history.replaceState(null, '', location.pathname + (MOCK ? location.search.replace(/[?&]room=\d+/, '') : '') + location.hash); }
-  const saved = LS.get('user');
   if (saved) {
     const doc = await DB.get('users/' + saved.code).catch(() => null);
     if (doc && doc.active !== false) { S.user = { code: saved.code, name: doc.name, team: doc.team || null }; await loadUserData(); }
@@ -35,23 +35,28 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.in
 })();
 
 async function loadUserData() {
-  const cs = await DB.list('courses');
+  const [cs, prog, wv] = await Promise.all([
+    DB.list('courses'),
+    DB.get('progress/' + S.user.code),
+    S.settings.weeklyVerse ? DB.get('verses/' + S.settings.weeklyVerse).catch(() => null) : Promise.resolve(null)
+  ]);
   S.courses = cs.filter((c) => c.published !== false).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
-  S.prog = (await DB.get('progress/' + S.user.code)) || {};
+  S.prog = prog || {};
   S.prog.v = S.prog.v || {}; S.prog.notes = S.prog.notes || {};
   const pick = S.prog.course && S.courses.find((c) => c.id === S.prog.course) ? S.prog.course : (S.courses[0] && S.courses[0].id);
   S.course = pick || null;
   if (S.course) await loadVerses(S.course);
-  if (S.settings.weeklyVerse) {
-    const wv = await DB.get('verses/' + S.settings.weeklyVerse).catch(() => null);
-    S.weekly = wv;
-  }
+  S.weekly = wv;
 }
+// 말씀은 코스가 바뀌었을 때만 새로 받기 (나머지는 이 기기에 보관)
 async function loadVerses(cid) {
   if (S.verses[cid]) return S.verses[cid];
+  const c = S.courses.find((x) => x.id === cid) || {}; const ver = c.updatedAt || c.count || 0;
+  try { const k = JSON.parse(localStorage.getItem('saegim-v-' + cid) || 'null'); if (k && k.ver === ver && k.list.length) { S.verses[cid] = k.list; return k.list; } } catch (e) {}
   const vs = await DB.list('verses', { where: [['courseId', '==', cid]] });
   vs.sort((a, b) => a.no - b.no);
   S.verses[cid] = vs;
+  try { localStorage.setItem('saegim-v-' + cid, JSON.stringify({ ver, list: vs })); } catch (e) {}
   return vs;
 }
 const easy = () => (S.prog && S.prog.easy != null ? S.prog.easy : S.settings.easyDefault);
@@ -148,7 +153,7 @@ async function viewHome() {
   const vs = S.verses[S.course] || [];
   const learned = vs.filter((v) => S.prog.v[v.id]).length;
   const nv = nextVerse();
-  const due = dueList().length;
+  const due = new Set([...dueList(), ...Object.entries(S.prog.v).filter(([, it]) => (it.score ?? 100) < WEAK_LINE).map(([id]) => id)]).size;
   const weekly = S.weekly && !S.prog.v[S.weekly.id] ? S.weekly : null;
   const focus = weekly || nv;
   const limitHit = !weekly && learnedToday() >= (S.settings.dailyNew || 1);
@@ -174,7 +179,7 @@ async function viewHome() {
   const nextIdx = nv ? vs.indexOf(nv) : vs.length;
   const rows = vs.map((v, i) => {
     const done = !!S.prog.v[v.id]; const now = i === nextIdx; const locked = !done && !now;
-    const st = done ? `<span class="st done">${icon('check', 18)}</span>` : now ? `<span class="st"><i class="dot"></i></span>` : `<span class="st">${icon('lock', 16)}</span>`;
+    const it = S.prog.v[v.id] || {}; const st = done ? (it.score != null ? `<span class="st score ${it.score < WEAK_LINE ? 'low' : ''}">${it.score}</span>` : `<span class="st done">${icon('check', 18)}</span>`) : now ? `<span class="st"><i class="dot"></i></span>` : `<span class="st">${icon('lock', 16)}</span>`;
     const tag = locked ? 'div' : 'a';
     return `<${tag} class="topic-row ${now ? 'now' : ''} ${locked ? 'locked' : ''}" ${locked ? '' : `href="#learn/${v.id}"`}><span class="n num">${String(v.no).padStart(2, '0')}</span><span style="display:flex;flex-direction:column;gap:3px;min-width:0"><span class="t">${esc(v.topic || v.ref)}</span><span class="r">${esc(v.ref)}</span></span>${st}</${tag}>`;
   }).join('');
@@ -209,10 +214,13 @@ function chunkWords(ws, max = 7) {
   for (let i = 0; i < ws.length; i += size) out.push(ws.slice(i, i + size).join(' '));
   return out;
 }
-function pickBlanks(ws, ratio) {
-  const idx = ws.map((w, i) => i).filter((i) => norm(ws[i]).length >= 2);
+// 약한 단어를 먼저 빈칸으로
+function pickBlanks(ws, ratio, prefer = []) {
+  const ok = (i) => norm(ws[i]).length >= 2;
   const n = Math.max(1, Math.round(ws.length * ratio));
-  return shuffle(idx).slice(0, Math.min(n, idx.length)).sort((a, b) => a - b);
+  const first = prefer.filter((i) => i < ws.length && ok(i));
+  const rest = shuffle(ws.map((w, i) => i).filter((i) => ok(i) && !first.includes(i)));
+  return [...first, ...rest].slice(0, Math.max(n, first.length)).sort((a, b) => a - b);
 }
 function distractors(word, pool, n = 3) {
   const w = norm(word); const cand = [...new Set(pool.map(norm).filter((x) => x && x !== w))];
@@ -223,73 +231,90 @@ function speak(text, rate) {
   if (!('speechSynthesis' in window)) return toast('이 기기에서는 듣기를 지원하지 않습니다');
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text); u.lang = 'ko-KR'; u.rate = rate || 1;
-  const ko = speechSynthesis.getVoices().find((v) => v.lang && v.lang.startsWith('ko')); if (ko) u.voice = ko;
+  const ko = speechSynthesis.getVoices().find((x) => x.lang && x.lang.startsWith('ko')); if (ko) u.voice = ko;
   speechSynthesis.speak(u);
 }
+const STAGE_W = { read: 0, order: 15, blank: 25, chosung: 25, full: 35 };
+const STAGE_NAME = { read: '읽고 듣기', order: '순서 맞추기', blank: '빈칸 채우기', chosung: '초성 보고 쓰기', full: '통째로 쓰기' };
+function finalScore(sc) {
+  let w = 0, t = 0;
+  Object.entries(sc).forEach(([k, v]) => { const ww = STAGE_W[k] ?? 0; w += ww; t += ww * v; });
+  if (!w) return Object.values(sc).length ? Math.round(Object.values(sc).reduce((a, b) => a + b, 0) / Object.values(sc).length) : 100;
+  return Math.round(t / w);
+}
 
-async function viewLearn(vid) {
+// focus = true 이면 약한 부분만 다시 (빈칸 → 통째로 쓰기)
+async function viewLearn(vid, focus = false) {
   const v = await getVerse(vid);
   if (!v) { toast('말씀을 찾을 수 없습니다'); return go('#home'); }
   const st = S.settings.stages || {};
-  let stages = [['read', '읽고 듣기'], ['order', '순서 맞추기'], ['blank', '빈칸 채우기'], ['chosung', '초성 보고 쓰기'], ['full', '통째로 쓰기']].filter(([k]) => st[k] !== false);
-  if (easy()) stages = stages.filter(([k]) => k !== 'chosung' && k !== 'full');
-  if (!stages.length) stages = [['read', '읽고 듣기']];
+  let stages = Object.keys(STAGE_NAME).filter((k) => st[k] !== false);
+  if (easy()) stages = stages.filter((k) => k !== 'chosung' && k !== 'full');
+  if (focus) stages = easy() ? ['blank'] : ['blank', 'full'];
+  if (!stages.length) stages = ['read'];
   const rule = courseRule(v.courseId);
   const ws = words(v.text);
   const pool = (S.verses[v.courseId] || []).flatMap((x) => words(x.text));
-  let si = 0; let mistakes = 0;
+  const prevWeak = ((S.prog.v[v.id] || {}).weak) || [];
+  let si = 0; const sc = {}; const weak = new Set();
 
   const frame = (body, foot) => {
+    const k = stages[si];
     root.innerHTML = `<div class="learn">
-      <header class="learn-top"><button class="icon-btn" id="xq" aria-label="학습 닫기">${icon('close', 20)}</button>
+      <header class="learn-top">
+        <div class="lt-left"><button class="icon-btn" id="xq" aria-label="학습 닫기">${icon('close', 20)}</button>${si > 0 ? `<button class="icon-btn" id="bk" aria-label="이전 단계로">${icon('back', 20)}</button>` : ''}</div>
         <div class="steps">${stages.map((s, i) => `<i class="${i < si ? 'done' : i === si ? 'now' : ''}"></i>`).join('')}</div>
         <span class="head num" style="font-size:13px;text-align:right">${si + 1}/${stages.length}</span></header>
-      <div class="learn-body fade-in"><span class="eyebrow ac">${si + 1}단계 · ${stages[si][1]}</span><h1 class="head">${esc(v.ref)}</h1>${body}</div>
+      <div class="learn-body fade-in"><div class="lb-head"><span class="eyebrow ac">${focus ? '약한 부분 다시 · ' : `${si + 1}단계 · `}${STAGE_NAME[k]}</span>${Object.keys(sc).length ? `<span class="eyebrow num">지금까지 ${finalScore(sc)}점</span>` : ''}</div><h1 class="head">${esc(v.ref)}</h1>${body}</div>
       <footer class="learn-foot ${foot.one ? 'one' : ''}">${foot.html}</footer></div>`;
-    $('#xq').onclick = () => go('#home');
+    $('#xq').onclick = async () => { if (si === 0 || (await confirmLeave())) go('#home'); };
+    const bk = $('#bk'); if (bk) bk.onclick = () => { si--; delete sc[stages[si]]; runStage(); };
   };
-  const next = () => { si++; if (si >= stages.length) finish(); else runStage(); };
+  const done = (k, score) => { sc[k] = Math.max(0, Math.min(100, Math.round(score))); si++; if (si >= stages.length) finish(); else runStage(); };
 
   function runStage() {
-    const k = stages[si][0];
+    const k = stages[si];
     if (k === 'read') {
       frame(`<p class="hint">소리 내어 천천히 읽어 보세요.</p><p class="read-verse">${esc(v.text)}</p>
         <button class="btn md tts" id="tts">${icon('sound', 18)}들려주기</button>`, { one: true, html: `<button class="btn pr" id="ok">다 읽었어요</button>` });
       $('#tts').onclick = () => speak(v.text, S.settings.ttsRate);
-      $('#ok').onclick = next;
+      $('#ok').onclick = () => done('read', 100);
     }
     if (k === 'order') {
       const chunks = chunkWords(ws); let order = shuffle(chunks.map((c, i) => i));
       if (chunks.length > 1 && order.every((x, i) => x === i)) order = order.reverse();
-      const placed = [];
+      const placed = []; let tries = 0;
       const draw = () => {
-        frame(`<p class="hint">말씀 조각을 순서대로 눌러 보세요.</p>
+        frame(`<p class="hint">말씀 조각을 순서대로 눌러 보세요. 놓은 조각을 누르면 되돌아갑니다.</p>
           <div class="board" id="bd">${placed.map((i, j) => `<button class="tile placed" data-j="${j}">${esc(chunks[i])}</button>`).join('') || '<span class="muted small">여기에 순서대로 놓입니다</span>'}</div>
           <div class="pool">${order.map((i) => `<button class="tile ${placed.includes(i) ? 'used' : ''}" data-i="${i}">${esc(chunks[i])}</button>`).join('')}</div>`,
-        { html: `<button class="btn" id="rs">다시</button><button class="btn pr" id="ck" ${placed.length < chunks.length ? 'disabled' : ''}>확인</button>` });
+        { html: `<button class="btn" id="rs">다시 놓기</button><button class="btn pr" id="ck" ${placed.length < chunks.length ? 'disabled' : ''}>확인</button>` });
         $$('.pool .tile').forEach((b) => b.onclick = () => { placed.push(+b.dataset.i); draw(); });
         $$('#bd .tile').forEach((b) => b.onclick = () => { placed.splice(+b.dataset.j, 1); draw(); });
         $('#rs').onclick = () => { placed.length = 0; draw(); };
         $('#ck').onclick = () => {
-          if (placed.every((x, j) => x === j)) { toast('잘하셨어요'); next(); }
-          else { mistakes++; $('#bd').classList.add('shake'); toast('순서를 다시 확인해 보세요'); setTimeout(() => { placed.length = 0; draw(); }, 700); }
+          tries++;
+          if (placed.every((x, j) => x === j)) { toast(tries === 1 ? '한 번에 맞히셨어요' : '잘하셨어요'); done('order', Math.max(40, 100 - 30 * (tries - 1))); }
+          else { $('#bd').classList.add('shake'); toast('순서를 다시 확인해 보세요'); setTimeout(() => { placed.length = 0; draw(); }, 700); }
         };
       };
       draw();
     }
     if (k === 'blank') {
-      const ratio = (S.prog.v[v.id] ? 0.5 : 0.25);
-      const blanks = pickBlanks(ws, ratio); let bi = 0; const filled = {};
+      const ratio = focus ? 0.3 : (S.prog.v[v.id] ? 0.5 : 0.25);
+      const blanks = pickBlanks(ws, ratio, focus || S.prog.v[v.id] ? prevWeak : []);
+      let bi = 0; const got = {}; let miss = 0;
       const draw = (msg = '') => {
         const cur = blanks[bi];
-        const board = ws.map((w, i) => blanks.includes(i) ? (filled[i] != null ? `<span class="w blank filled">${esc(w)}</span>` : `<span class="w blank ${i === cur ? 'cur' : ''}">${esc(w)}</span>`) : `<span class="w">${esc(w)}</span>`).join('');
+        const board = ws.map((w, i) => blanks.includes(i) ? (got[i] != null ? `<span class="w blank filled">${esc(w)}</span>` : `<span class="w blank ${i === cur ? 'cur' : ''}">${esc(w)}</span>`) : `<span class="w">${esc(w)}</span>`).join('');
+        const after = (ok) => { got[cur] = ok ? (miss === 0 ? 1 : 0.5) : 0; if (got[cur] < 1) weak.add(cur); miss = 0; bi++; bi >= blanks.length ? done('blank', (Object.values(got).reduce((a, b) => a + b, 0) / blanks.length) * 100) : draw(); };
         if (easy()) {
           const opts = shuffle([norm(ws[cur]), ...distractors(ws[cur], pool)]);
           frame(`<p class="hint">빈칸에 들어갈 말을 골라 보세요. <span class="num">(${bi + 1}/${blanks.length})</span></p><div class="board">${board}</div>
             <div class="choices">${opts.map((o) => `<button class="choice" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div>`, { one: true, html: `<span class="muted small" style="text-align:center">${msg || '&nbsp;'}</span>` });
           $$('.choice').forEach((b) => b.onclick = () => {
-            if (b.dataset.o === norm(ws[cur])) { b.classList.add('ok'); filled[cur] = true; setTimeout(() => { bi++; bi >= blanks.length ? next() : draw(); }, 350); }
-            else { mistakes++; b.classList.add('no'); }
+            if (b.dataset.o === norm(ws[cur])) { b.classList.add('ok'); setTimeout(() => after(true), 350); }
+            else { miss++; b.classList.add('no'); b.disabled = true; }
           });
         } else {
           frame(`<p class="hint">빈칸에 들어갈 말을 적어 보세요. <span class="num">(${bi + 1}/${blanks.length})</span></p><div class="board">${board}</div>
@@ -299,19 +324,19 @@ async function viewLearn(vid) {
           { html: `<button class="btn" id="hint">힌트</button><button class="btn pr" id="ck">확인</button>` });
           const inp = $('#bi'); inp.focus();
           const check = () => {
-            if (gradeWord(inp.value, ws[cur], rule)) { filled[cur] = true; bi++; bi >= blanks.length ? next() : draw(); }
-            else { mistakes++; inp.parentElement.classList.add('shake'); setTimeout(() => inp.parentElement.classList.remove('shake'), 500); $('#vm').textContent = '다시 한 번 해 보세요'; }
+            if (gradeWord(inp.value, ws[cur], rule)) after(true);
+            else { miss++; if (miss >= 3) { toast(`정답: ${ws[cur]}`); after(false); return; } inp.parentElement.classList.add('shake'); setTimeout(() => inp.parentElement.classList.remove('shake'), 500); $('#vm').textContent = '다시 한 번 해 보세요'; }
           };
-          $('#ck').onclick = check; inp.onkeydown = (e) => { if (e.key === 'Enter') check(); };
-          $('#hint').onclick = () => { $('#vm').textContent = `초성: ${chosung(ws[cur])}`; $('#vm').className = 'verdict'; };
+          $('#ck').onclick = check; inp.onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) check(); };
+          $('#hint').onclick = () => { miss = Math.max(miss, 1); $('#vm').textContent = `초성: ${chosung(ws[cur])}`; $('#vm').className = 'verdict'; };
         }
       };
       draw();
     }
     if (k === 'chosung') {
-      let wi = 0; let miss = 0;
+      let wi = 0; let miss = 0; const got = [];
       const draw = (msg = '') => {
-        const board = ws.map((w, i) => i < wi ? `<span class="w">${esc(w)}</span>` : i === wi ? `<span class="w cho cur">${esc(chosung(w))}</span>` : `<span class="w cho">${esc(chosung(w))}</span>`).join('');
+        const board = ws.map((w, i) => i < wi ? `<span class="w ${got[i] < 1 ? 'bad' : ''}">${esc(w)}</span>` : i === wi ? `<span class="w cho cur">${esc(chosung(w))}</span>` : `<span class="w cho">${esc(chosung(w))}</span>`).join('');
         frame(`<p class="hint">초성을 보고 다음 단어를 적어 보세요.</p><div class="board">${board}</div>
           <label class="eyebrow" for="ci" style="margin-top:24px">다음 단어</label>
           <div class="line-input" style="margin-top:10px"><input id="ci" autocomplete="off" autocapitalize="off" spellcheck="false"><span class="eyebrow ac" style="letter-spacing:.08em">${esc(chosung(ws[wi]))}</span></div>
@@ -319,114 +344,156 @@ async function viewLearn(vid) {
           <p class="verdict no" id="vm" style="min-height:24px;margin-top:8px">${msg}</p>`,
         { html: `<button class="btn" id="hint">보기</button><button class="btn pr" id="ck">확인</button>` });
         const inp = $('#ci'); inp.focus();
-        const adv = () => { wi++; miss = 0; wi >= ws.length ? next() : draw(); };
+        const adv = (pts) => { got[wi] = pts; if (pts < 1) weak.add(wi); wi++; miss = 0; wi >= ws.length ? done('chosung', (got.reduce((a, b) => a + b, 0) / ws.length) * 100) : draw(); };
         const check = () => {
-          if (gradeWord(inp.value, ws[wi], rule)) adv();
-          else { mistakes++; miss++; if (miss >= 2) { toast(`정답: ${ws[wi]}`); adv(); } else { inp.parentElement.classList.add('shake'); setTimeout(() => inp.parentElement.classList.remove('shake'), 500); $('#vm').textContent = '한 번 더 생각해 보세요'; } }
+          if (gradeWord(inp.value, ws[wi], rule)) adv(miss === 0 ? 1 : 0.5);
+          else { miss++; if (miss >= 2) { toast(`정답: ${ws[wi]}`); adv(0); } else { inp.parentElement.classList.add('shake'); setTimeout(() => inp.parentElement.classList.remove('shake'), 500); $('#vm').textContent = '한 번 더 생각해 보세요'; } }
         };
         $('#ck').onclick = check; inp.onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) check(); };
-        $('#hint').onclick = () => { toast(`정답: ${ws[wi]}`); mistakes++; adv(); };
+        $('#hint').onclick = () => { toast(`정답: ${ws[wi]}`); adv(0); };
       };
       draw();
     }
     if (k === 'full') {
+      let best = 0; let lastAns = '';
       frame(`<p class="hint">말씀 전체를 적어 보세요. 띄어쓰기와 문장부호는 보지 않습니다.</p>
         <label class="eyebrow" for="fa" style="margin-top:24px">${esc(v.topic || '')}</label>
         <textarea class="input verse" id="fa" style="margin-top:10px;font-size:calc(19px * var(--k))" autocomplete="off" spellcheck="false"></textarea>
         <div id="fr"></div>`, { html: `<button class="btn" id="skip">건너뛰기</button><button class="btn pr" id="ck">채점하기</button>` });
       $('#fa').focus();
-      $('#skip').onclick = () => { mistakes += 3; next(); };
+      const leave = () => { missedWords(lastAns, v.text).forEach((i) => weak.add(i)); done('full', best); };
+      $('#skip').onclick = () => { if (!lastAns) ws.forEach((w, i) => weak.add(i)); leave(); };
       $('#ck').onclick = () => {
-        const r = gradeText($('#fa').value, v.text, rule);
-        $('#fr').innerHTML = `<p class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? icon('check', 20) + '잘 새기셨습니다' : `${Math.round(r.acc * 100)}% 맞았어요`}</p><div class="result-box">${diffHTML($('#fa').value, v.text)}</div>`;
-        if (r.ok) { $('#ck').textContent = '다음'; $('#ck').onclick = next; }
-        else { mistakes++; $('#ck').textContent = '다시 쓰기'; $('#ck').onclick = () => { $('#fa').value = ''; $('#fr').innerHTML = ''; $('#ck').textContent = '채점하기'; runStage(); }; $('#skip').textContent = '넘어가기'; }
+        const ans = $('#fa').value; const r = gradeText(ans, v.text, rule); const pts = r.ok ? Math.max(Math.round(r.acc * 100), 95) : Math.round(r.acc * 100);
+        if (pts >= best) { best = pts; lastAns = ans; }
+        $('#fr').innerHTML = `<p class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? icon('check', 20) + `잘 새기셨습니다 · ${pts}점` : `${pts}점 · 빨간 글자를 확인해 보세요`}</p><div class="result-box">${diffHTML(ans, v.text)}</div>`;
+        if (r.ok) { $('#ck').textContent = '다음'; $('#ck').onclick = leave; $('#skip').classList.add('hidden'); $('.learn-foot').classList.add('one'); }
+        else { $('#ck').textContent = '다시 쓰기'; $('#ck').onclick = () => { $('#fa').value = ''; $('#fr').innerHTML = ''; $('#ck').textContent = '채점하기'; $('#ck').onclick = null; runStage(); }; $('#skip').textContent = '이 점수로 넘어가기'; }
       };
     }
   }
 
   async function finish() {
     const first = !S.prog.v[v.id];
-    const xp = Math.max(10, 30 - mistakes * 3);
+    const total = finalScore(sc);
     const iv = S.settings.intervals || [1, 3, 7, 14, 30];
-    const item = S.prog.v[v.id] ? scheduleNext(S.prog.v[v.id], mistakes < 3, iv) : { box: 1, due: addDays(today(), iv[0]), learnedAt: today(), lastAt: Date.now(), reviews: 0 };
+    const prev = S.prog.v[v.id] || {};
+    let item = first ? { box: 1, due: addDays(today(), iv[0]), learnedAt: today(), lastAt: Date.now(), reviews: 0 } : scheduleNext(prev, total >= WEAK_LINE, iv);
+    const weakArr = [...weak].sort((a, b) => a - b);
+    item = { ...item, score: total, best: Math.max(prev.best || 0, total), stages: sc, weak: weakArr, tries: (prev.tries || 0) + 1 };
+    if (total < WEAK_LINE) item.due = addDays(today(), 1);
     S.prog.v[v.id] = item;
     await DB.set('progress/' + S.user.code, { v: { [v.id]: item } });
+    const xp = Math.max(5, Math.round(total / 4));
     await touchDay(xp);
+    const rows = stages.map((k) => `<div class="score-row"><span>${STAGE_NAME[k]}</span><i><b style="width:${sc[k] ?? 0}%"></b></i><span class="num">${sc[k] ?? 0}</span></div>`).join('');
     root.innerHTML = `<div class="learn"><div class="done-hero fade-in">
-      <span class="eyebrow ac">${first ? '새로 새긴 말씀' : '다시 새긴 말씀'}</span>
-      <p class="big">${esc(v.ref)}</p>
-      <p class="verse" style="margin:0;font-size:calc(18px * var(--k));line-height:1.8">${esc(v.text)}</p>
+      <span class="eyebrow ac">${focus ? '약한 부분 다시' : first ? '새로 새긴 말씀' : '다시 새긴 말씀'} · ${esc(v.ref)}</span>
+      <div class="score-big"><span class="num">${total}</span><em>점</em><span class="grade">${GRADE(total)}</span></div>
+      <div class="score-rows">${rows}</div>
+      ${weakArr.length ? `<div class="weak-box"><span class="eyebrow">다시 볼 단어 · 내일 복습에 나옵니다</span><div class="weak-words">${weakArr.map((i) => `<span>${esc(ws[i])}</span>`).join('')}</div></div>` : `<p class="verdict ok" style="margin:0">${icon('check', 20)}틀린 곳 없이 새기셨습니다</p>`}
       <p class="xp num">+${xp} 은혜 점수 <span class="muted" style="font-family:var(--f-ui);font-size:14px;font-weight:500">· ${currentStreak()}일 연속</span></p>
-      <div class="field" style="margin-top:12px"><label for="nt">이 말씀이 나에게 하는 한 줄</label><textarea class="input verse" id="nt" style="min-height:96px" placeholder="떠오르는 마음을 적어 두세요 (선택)">${esc(S.prog.notes[v.id] || '')}</textarea></div>
-    </div><footer class="learn-foot"><button class="btn" id="hm">홈으로</button><button class="btn pr" id="sv">${nextVerse() ? '저장하고 다음 말씀' : '저장하기'}</button></footer></div>`;
-    const saveNote = async () => { const t = $('#nt').value.trim(); if (t) { S.prog.notes[v.id] = t; await DB.set('progress/' + S.user.code, { notes: { [v.id]: t } }); } };
+      <div class="field"><label for="nt">이 말씀이 나에게 하는 한 줄</label><textarea class="input verse" id="nt" style="min-height:88px" placeholder="떠오르는 마음을 적어 두세요 (선택)">${esc(S.prog.notes[v.id] || '')}</textarea></div>
+    </div><footer class="learn-foot ${weakArr.length ? 'three' : ''}">
+      <button class="btn" id="hm">홈으로</button>
+      ${weakArr.length ? `<button class="btn" id="again">약한 부분 다시</button>` : ''}
+      <button class="btn pr" id="sv">${nextVerse() ? '다음 말씀' : '저장하기'}</button></footer></div>`;
+    const saveNote = async () => { const t = $('#nt').value.trim(); if (t && t !== S.prog.notes[v.id]) { S.prog.notes[v.id] = t; await DB.set('progress/' + S.user.code, { notes: { [v.id]: t } }); } };
     $('#hm').onclick = async () => { await saveNote(); go('#home'); };
+    const ag = $('#again'); if (ag) ag.onclick = async () => { await saveNote(); viewLearn(v.id, true); };
     $('#sv').onclick = async () => { await saveNote(); const n = nextVerse(); go(n ? '#learn/' + n.id : '#home'); };
   }
   runStage();
 }
+function confirmLeave() {
+  return new Promise((resolve) => {
+    modal(`<h3>학습을 멈출까요?</h3><p class="muted" style="margin:0;line-height:1.7">지금까지 한 단계는 저장되지 않습니다.</p><div class="actions"><button class="btn md" data-close id="no">계속하기</button><button class="btn md pr" id="yes">멈추기</button></div>`, {
+      onMount(el, close) { $('#yes', el).onclick = () => { close(); resolve(true); }; $('#no', el).onclick = () => resolve(false); }
+    });
+  });
+}
 
 /* ───────── 복습 ───────── */
+function weakList() { return Object.entries(S.prog.v).filter(([, it]) => (it.score ?? 100) < WEAK_LINE).map(([id, it]) => ({ id, ...it })); }
 async function viewReview() {
-  const ids = dueList();
+  const ids = [...new Set([...weakList().map((x) => x.id), ...dueList()])];
   const all = [];
   for (const id of ids) { const v = await getVerse(id); if (v) all.push(v); }
+  all.sort((a, b) => ((S.prog.v[a.id] || {}).score ?? 100) - ((S.prog.v[b.id] || {}).score ?? 100));
+  const weakRows = weakList().length ? `<section class="sec"><div class="sec-head"><h2>점수가 낮은 말씀</h2><span class="small muted nowrap">${WEAK_LINE}점 아래</span></div><div style="margin-top:6px">${(await Promise.all(weakList().map(async (x) => ({ x, v: await getVerse(x.id) })))).filter((r) => r.v).map(({ x, v }) => `<a class="topic-row" href="#learn/${v.id}"><span class="n num" style="color:var(--ac)">${x.score}</span><span style="display:flex;flex-direction:column;gap:3px;min-width:0"><span class="t">${esc(v.ref)}</span><span class="r">${esc((x.weak || []).slice(0, 4).map((i) => words(v.text)[i]).filter(Boolean).join(' · ') || v.topic || '')}</span></span><span class="st">${icon('next', 18)}</span></a>`).join('')}</div></section>` : '';
   if (!all.length) {
     const upcoming = Object.values(S.prog.v).map((x) => x.due).filter(Boolean).sort()[0];
     root.innerHTML = `<div class="shell">${topbar(streakHTML())}<main class="main"><section class="sec fade-in">
       <span class="eyebrow ac">복습</span><h1 class="head" style="font-size:calc(28px * var(--k));margin:14px 0 0">오늘 복습할 말씀이 없어요</h1>
-      <p class="muted" style="margin:12px 0 0;line-height:1.7">${upcoming ? `다음 복습은 <b class="num" style="color:var(--ink)">${upcoming.slice(5).replace('-', '월 ')}일</b>에 돌아옵니다.` : '말씀을 외우면 잊을 즈음에 다시 찾아옵니다.'}</p>
+      <p class="muted" style="margin:12px 0 0;line-height:1.7">${upcoming ? `다음 복습은 <b class="num" style="color:var(--ink)">${+upcoming.slice(5, 7)}월 ${+upcoming.slice(8)}일</b>에 돌아옵니다.` : '말씀을 외우면 잊을 즈음에 다시 찾아옵니다.'}</p>
       <div style="margin-top:24px"><a class="btn pr block" href="#home">새 말씀 외우기</a></div></section>
       ${reviewSchedule()}</main>${tabbar('review')}</div>`;
     return;
   }
-  let i = 0; let okCount = 0;
+  root.innerHTML = `<div class="shell">${topbar(streakHTML())}<main class="main fade-in">
+    <section class="sec"><span class="eyebrow ac">복습</span><h1 class="head" style="font-size:calc(28px * var(--k));margin:14px 0 0">오늘 다시 새길 말씀 <span class="num" style="color:var(--ac)">${all.length}</span></h1>
+      <p class="muted" style="margin:10px 0 0;line-height:1.7">점수가 낮았던 말씀과 복습 날짜가 된 말씀입니다. 약했던 단어부터 다시 물어봅니다.</p>
+      <div style="margin-top:22px"><button class="btn pr block" id="go">복습 시작</button></div></section>
+    ${weakRows}${reviewSchedule()}</main>${tabbar('review')}</div>`;
+  $('#go').onclick = () => runReview(all);
+}
+async function runReview(all) {
+  let i = 0; const results = [];
   const iv = S.settings.intervals || [1, 3, 7, 14, 30];
   const step = () => {
     if (i >= all.length) return done();
-    const v = all[i]; const rule = courseRule(v.courseId);
-    const foot = (h) => `<footer class="learn-foot ${h.one ? 'one' : ''}">${h.html}</footer>`;
-    const head = `<header class="learn-top"><button class="icon-btn" id="xq" aria-label="복습 닫기">${icon('close', 20)}</button><div class="steps">${all.map((x, j) => `<i class="${j < i ? 'done' : j === i ? 'now' : ''}"></i>`).join('')}</div><span class="head num" style="font-size:13px;text-align:right">${i + 1}/${all.length}</span></header>`;
-    const record = async (ok) => {
-      if (ok) okCount++;
-      const item = scheduleNext(S.prog.v[v.id] || {}, ok, iv); S.prog.v[v.id] = item;
+    const v = all[i]; const rule = courseRule(v.courseId); const ws = words(v.text);
+    const prev = S.prog.v[v.id] || {};
+    const head = `<header class="learn-top"><div class="lt-left"><button class="icon-btn" id="xq" aria-label="복습 닫기">${icon('close', 20)}</button>${i > 0 ? `<button class="icon-btn" id="bk" aria-label="이전 말씀으로">${icon('back', 20)}</button>` : ''}</div><div class="steps">${all.map((x, j) => `<i class="${j < i ? 'done' : j === i ? 'now' : ''}"></i>`).join('')}</div><span class="head num" style="font-size:13px;text-align:right">${i + 1}/${all.length}</span></header>`;
+    const bind = () => { $('#xq').onclick = () => go('#review'); const bk = $('#bk'); if (bk) bk.onclick = () => { i--; results.pop(); step(); }; };
+    const record = async (score, weakIdx) => {
+      const ok = score >= WEAK_LINE;
+      let item = scheduleNext(prev, ok, iv);
+      item = { ...item, score, best: Math.max(prev.best || 0, score), weak: weakIdx, stages: prev.stages || {}, tries: (prev.tries || 0) + 1 };
+      if (!ok) item.due = addDays(today(), 1);
+      S.prog.v[v.id] = item; results.push({ v, score });
       await DB.set('progress/' + S.user.code, { v: { [v.id]: item } });
       i++; step();
     };
     if (easy()) {
-      const ws = words(v.text); const blanks = pickBlanks(ws, 0.4); let bi = 0; let wrong = 0;
       const pool = (S.verses[v.courseId] || []).flatMap((x) => words(x.text)).concat(ws);
+      const blanks = pickBlanks(ws, 0.35, prev.weak || []); let bi = 0; const got = {}; let miss = 0;
       const draw = () => {
         const cur = blanks[bi];
-        root.innerHTML = `<div class="learn">${head}<div class="learn-body fade-in"><span class="eyebrow ac">복습 · ${esc(v.topic || '')}</span><h1 class="head">${esc(v.ref)}</h1>
-          <div class="board">${ws.map((w, k) => blanks.includes(k) ? `<span class="w blank ${k < cur ? 'filled' : k === cur ? 'cur' : ''}">${esc(w)}</span>` : `<span class="w">${esc(w)}</span>`).join('')}</div>
+        root.innerHTML = `<div class="learn">${head}<div class="learn-body fade-in"><div class="lb-head"><span class="eyebrow ac">복습 · ${esc(v.topic || '')}</span>${prev.score != null ? `<span class="eyebrow num">지난번 ${prev.score}점</span>` : ''}</div><h1 class="head">${esc(v.ref)}</h1>
+          <div class="board">${ws.map((w, k) => blanks.includes(k) ? `<span class="w blank ${got[k] != null ? 'filled' : k === cur ? 'cur' : ''}">${esc(w)}</span>` : `<span class="w">${esc(w)}</span>`).join('')}</div>
           <div class="choices">${shuffle([norm(ws[cur]), ...distractors(ws[cur], pool)]).map((o) => `<button class="choice" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div></div></div>`;
-        $('#xq').onclick = () => go('#home');
+        bind();
         $$('.choice').forEach((b) => b.onclick = () => {
-          if (b.dataset.o === norm(ws[cur])) { b.classList.add('ok'); setTimeout(() => { bi++; bi >= blanks.length ? record(wrong === 0) : draw(); }, 300); }
-          else { wrong++; b.classList.add('no'); }
+          if (b.dataset.o === norm(ws[cur])) { b.classList.add('ok'); got[cur] = miss ? 0.5 : 1; miss = 0; setTimeout(() => { bi++; if (bi >= blanks.length) { const sc = Math.round((Object.values(got).reduce((a, x) => a + x, 0) / blanks.length) * 100); record(sc, blanks.filter((k) => got[k] < 1)); } else draw(); }, 300); }
+          else { miss++; b.classList.add('no'); b.disabled = true; }
         });
       };
       draw();
     } else {
-      root.innerHTML = `<div class="learn">${head}<div class="learn-body fade-in"><span class="eyebrow ac">복습 · ${esc(v.topic || '')}</span><h1 class="head">${esc(v.ref)}</h1>
-        <p class="hint">기억나는 대로 말씀을 적어 보세요.</p>
+      root.innerHTML = `<div class="learn">${head}<div class="learn-body fade-in"><div class="lb-head"><span class="eyebrow ac">복습 · ${esc(v.topic || '')}</span>${prev.score != null ? `<span class="eyebrow num">지난번 ${prev.score}점</span>` : ''}</div><h1 class="head">${esc(v.ref)}</h1>
+        <p class="hint">기억나는 대로 말씀을 적어 보세요.${(prev.weak || []).length ? ` 지난번에 <b style="color:var(--ac)">${(prev.weak || []).length}단어</b>가 약했어요.` : ''}</p>
         <textarea class="input verse" id="fa" style="margin-top:20px;font-size:calc(19px * var(--k))" spellcheck="false"></textarea><div id="fr"></div></div>
-        ${foot({ html: `<button class="btn" id="hint">첫 구절 보기</button><button class="btn pr" id="ck">채점하기</button>` })}</div>`;
-      $('#xq').onclick = () => go('#home');
-      let peeked = false;
-      $('#hint').onclick = () => { peeked = true; const ws = words(v.text); toast(ws.slice(0, 3).join(' ') + ' …', 3000); };
+        <footer class="learn-foot"><button class="btn" id="hint">첫머리 보기</button><button class="btn pr" id="ck">채점하기</button></footer></div>`;
+      bind();
+      let peek = 0;
+      $('#hint').onclick = () => { peek++; toast(ws.slice(0, 2 + peek).join(' ') + ' …', 3000); };
       $('#ck').onclick = () => {
-        const r = gradeText($('#fa').value, v.text, rule); const ok = r.ok && !peeked;
-        $('#fr').innerHTML = `<p class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? icon('check', 20) + '잘 기억하셨어요' : `${Math.round(r.acc * 100)}% 맞았어요 · 곧 다시 나옵니다`}</p><div class="result-box">${diffHTML($('#fa').value, v.text)}</div>`;
-        $('#ck').textContent = '다음'; $('#ck').onclick = () => record(ok); $('#hint').disabled = true;
+        const ans = $('#fa').value; const r = gradeText(ans, v.text, rule);
+        const score = Math.max(0, (r.ok ? Math.max(95, Math.round(r.acc * 100)) : Math.round(r.acc * 100)) - peek * 10);
+        $('#fr').innerHTML = `<p class="verdict ${score >= WEAK_LINE ? 'ok' : 'no'}">${score >= WEAK_LINE ? icon('check', 20) + `잘 기억하셨어요 · ${score}점` : `${score}점 · 내일 다시 나옵니다`}</p><div class="result-box">${diffHTML(ans, v.text)}</div>`;
+        $('#ck').textContent = '다음'; $('#ck').onclick = () => record(score, missedWords(ans, v.text)); $('#hint').disabled = true;
       };
     }
   };
   const done = async () => {
-    await touchDay(okCount * 5 + 5);
-    root.innerHTML = `<div class="learn"><div class="done-hero fade-in"><span class="eyebrow ac">복습 완료</span><p class="big">${all.length}구절 중 <span class="num">${okCount}</span>구절을<br>잘 기억하셨어요</p><p class="xp num">+${okCount * 5 + 5} 은혜 점수</p></div><footer class="learn-foot one"><button class="btn pr" id="hm">홈으로</button></footer></div>`;
+    const avg = Math.round(results.reduce((a, r) => a + r.score, 0) / (results.length || 1));
+    const xp = Math.max(5, Math.round(avg / 5) + results.length * 2);
+    await touchDay(xp);
+    root.innerHTML = `<div class="learn"><div class="done-hero fade-in"><span class="eyebrow ac">복습 완료 · ${results.length}구절</span>
+      <div class="score-big"><span class="num">${avg}</span><em>점</em><span class="grade">${GRADE(avg)}</span></div>
+      <div class="score-rows">${results.map((r) => `<div class="score-row"><span>${esc(r.v.ref)}</span><i><b style="width:${r.score}%"></b></i><span class="num" style="color:${r.score < WEAK_LINE ? 'var(--ac)' : 'inherit'}">${r.score}</span></div>`).join('')}</div>
+      <p class="xp num">+${xp} 은혜 점수</p></div><footer class="learn-foot one"><button class="btn pr" id="hm">홈으로</button></footer></div>`;
     $('#hm').onclick = () => go('#home');
   };
   step();
@@ -434,7 +501,7 @@ async function viewReview() {
 function reviewSchedule() {
   const byDay = {};
   Object.values(S.prog.v).forEach((x) => { if (x.due) byDay[x.due] = (byDay[x.due] || 0) + 1; });
-  const days = Object.keys(byDay).sort().slice(0, 7);
+  const days = Object.keys(byDay).filter((d) => d > today()).sort().slice(0, 7);
   if (!days.length) return '';
   return `<section class="sec"><div class="sec-head"><h2>다가오는 복습</h2></div><div style="margin-top:6px">${days.map((d) => `<div class="list-row"><div class="l"><b class="num">${+d.slice(5, 7)}월 ${+d.slice(8)}일</b></div><span class="head num">${byDay[d]}구절</span></div>`).join('')}</div></section>`;
 }
@@ -443,6 +510,7 @@ function reviewSchedule() {
 async function viewMe() {
   const learned = Object.keys(S.prog.v).length;
   const mastered = Object.values(S.prog.v).filter((x) => x.mastered).length;
+  const scored = Object.values(S.prog.v).filter((x) => x.score != null); const avg = scored.length ? Math.round(scored.reduce((a, x) => a + x.score, 0) / scored.length) : 0;
   const courseRows = [];
   for (const c of S.courses) {
     const vs = await loadVerses(c.id);
@@ -457,7 +525,7 @@ async function viewMe() {
 
   root.innerHTML = `<div class="shell">${topbar(streakHTML())}<main class="main fade-in">
     <section class="sec"><span class="eyebrow">내 기록</span><h1 class="head" style="font-size:calc(28px * var(--k));margin:12px 0 0">${esc(S.user.name)} 님</h1></section>
-    <div class="stats"><div><b>${learned}</b><span>새긴 말씀</span></div><div><b>${currentStreak()}</b><span>연속 일수</span></div><div><b>${fmt(S.prog.xp || 0)}</b><span>은혜 점수</span></div></div>
+    <div class="stats"><div><b>${learned}</b><span>새긴 말씀</span></div><div><b>${avg}</b><span>평균 점수</span></div><div><b>${currentStreak()}</b><span>연속 일수</span></div><div><b>${fmt(S.prog.xp || 0)}</b><span>은혜 점수</span></div></div>
     <section class="sec"><div class="sec-head"><h2>코스</h2><span class="small muted nowrap">오래 기억한 말씀 ${mastered}</span></div>
       <div style="margin-top:6px">${courseRows.map(({ c, n, total }) => `<div class="list-row"><div class="l"><b>${esc(c.name)}</b><span class="num">${n} / ${total}</span></div>${n >= total && total > 0 ? `<button class="btn sm pr" data-cert="${c.id}">${icon('award', 16)}수료증</button>` : `<span class="small muted num nowrap">${total ? Math.round((n / total) * 100) : 0}%</span>`}</div>`).join('')}</div></section>
     ${noteVerses.length ? `<section class="sec"><div class="sec-head"><h2>나의 한 줄</h2></div>${noteVerses.map(({ v, t }) => `<div class="note"><span class="eyebrow">${esc(v.ref)}</span><p>${esc(t)}</p></div>`).join('')}</section>` : ''}

@@ -192,25 +192,49 @@ function deepMerge(a, b) {
   }
   return a;
 }
-export async function applySettings(s, { bgKey = 'bg' } = {}) {
+const FONT_Q = {
+  '고운바탕': 'Gowun+Batang:wght@400;700', '함렛': 'Hahmlet:wght@400;500;600;700', '나눔명조': 'Nanum+Myeongjo:wght@400;700', '노토 세리프': 'Noto+Serif+KR:wght@400;600',
+  'IBM Plex': 'IBM+Plex+Sans+KR:wght@400;500;600;700', '노토 산스': 'Noto+Sans+KR:wght@400;500;700', '고딕 A1': 'Gothic+A1:wght@400;500;700'
+};
+// 고른 글꼴만 불러와 첫 화면을 빠르게
+function loadFonts(s) {
+  const fams = [...new Set(['Hahmlet:wght@400;500;600;700', FONT_Q[s.verseFont] || FONT_Q['고운바탕'], FONT_Q[s.uiFont] || FONT_Q['IBM Plex']])];
+  try { localStorage.setItem('saegim-fonts', JSON.stringify(fams)); } catch (e) {}
+  const link = document.getElementById('gf'); if (!link) return;
+  const href = 'https://fonts.googleapis.com/css2?family=' + fams.join('&family=') + '&display=swap';
+  if (link.href !== href) link.href = href;
+}
+// 배경·로고 사진은 바뀌었을 때만 새로 받기
+export async function getAsset(key, version) {
+  const ck = 'saegim-asset-' + key;
+  try { const c = JSON.parse(localStorage.getItem(ck) || 'null'); if (c && version && c.v === version) return c.data; } catch (e) {}
+  let data = null;
+  try { const d = await DB.get('assets/' + key); data = d && d.data ? d.data : null; } catch (e) {}
+  try { if (data) localStorage.setItem(ck, JSON.stringify({ v: version || 0, data })); else localStorage.removeItem(ck); } catch (e) {}
+  return data;
+}
+export function cachedSettings() { try { return JSON.parse(localStorage.getItem('saegim-settings') || 'null'); } catch (e) { return null; } }
+export function applyLook(s) {
   const root = document.documentElement;
   root.dataset.theme = s.theme;
   root.dataset.size = s.textSize;
   root.style.setProperty('--f-verse', VERSE_FONTS[s.verseFont] || VERSE_FONTS['고운바탕']);
   root.style.setProperty('--f-ui', UI_FONTS[s.uiFont] || UI_FONTS['IBM Plex']);
-  try {
-    const bg = await DB.get('assets/' + bgKey);
-    if (bg && bg.data) {
-      document.body.classList.add('has-bg');
-      root.style.setProperty('--bg-img', `url(${bg.data})`);
-      const c = getComputedStyle(root).getPropertyValue('--bg').trim();
-      root.style.setProperty('--bg-veil', hexA(c, s.bgOpacity ?? 0.85));
-    } else document.body.classList.remove('has-bg');
-  } catch (e) { /* 배경 없음 */ }
+  loadFonts(s);
 }
-export async function loadLogo() {
-  try { const l = await DB.get('assets/logo'); return l && l.data ? l.data : null; } catch (e) { return null; }
+export async function applySettings(s, { bgKey = 'bg' } = {}) {
+  const root = document.documentElement;
+  applyLook(s);
+  try { localStorage.setItem('saegim-settings', JSON.stringify(s)); } catch (e) {}
+  const bg = await getAsset(bgKey, s.assetsVersion);
+  if (bg) {
+    document.body.classList.add('has-bg');
+    root.style.setProperty('--bg-img', `url(${bg})`);
+    const c = getComputedStyle(root).getPropertyValue('--bg').trim();
+    root.style.setProperty('--bg-veil', hexA(c, s.bgOpacity ?? 0.85));
+  } else document.body.classList.remove('has-bg');
 }
+export async function loadLogo(s) { return getAsset('logo', s && s.assetsVersion); }
 function hexA(hex, a) {
   const h = hex.replace('#', '');
   const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
@@ -338,7 +362,7 @@ export function gradeWord(answer, target, rule = '보통') {
   return t.length >= 3 && d <= 1;
 }
 // 틀린 글자 표시 (목표 본문 기준)
-export function diffHTML(answer, target) {
+function diffMarks(answer, target) {
   const A = [...norm(answer)];
   const T = [...target];
   const tIdx = []; T.forEach((c, i) => { if (norm(c)) tIdx.push(i); });
@@ -348,8 +372,20 @@ export function diffHTML(answer, target) {
   for (let i = m - 1; i >= 0; i--) for (let j = n - 1; j >= 0; j--) dp[i][j] = A[i] === t[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
   const okSet = new Set(); let i = 0, j = 0;
   while (i < m && j < n) { if (A[i] === t[j]) { okSet.add(tIdx[j]); i++; j++; } else if (dp[i + 1][j] >= dp[i][j + 1]) i++; else j++; }
-  return T.map((c, k) => (!norm(c) ? esc(c) : okSet.has(k) ? `<span class="diff-ok">${esc(c)}</span>` : `<span class="diff-miss">${esc(c)}</span>`)).join('');
+  return T.map((c, k) => (!norm(c) ? null : okSet.has(k)));
 }
+export function diffHTML(answer, target) {
+  const T = [...target]; const mk = diffMarks(answer, target);
+  return T.map((c, k) => (mk[k] === null ? esc(c) : mk[k] ? `<span class="diff-ok">${esc(c)}</span>` : `<span class="diff-miss">${esc(c)}</span>`)).join('');
+}
+// 틀린 글자가 들어 있는 단어 번호
+export function missedWords(answer, target) {
+  const T = [...target]; const mk = diffMarks(answer, target); const out = new Set(); let wi = 0;
+  T.forEach((c, k) => { if (/\s/.test(c)) { if (k > 0 && !/\s/.test(T[k - 1])) wi++; return; } if (mk[k] === false) out.add(wi); });
+  return [...out];
+}
+export const GRADE = (n) => (n >= 90 ? '깊이 새김' : n >= 80 ? '잘 새김' : n >= 60 ? '조금 더' : '다시 새겨요');
+export const WEAK_LINE = 80;
 
 /* ───────── 복습 일정 ───────── */
 export function scheduleNext(item, correct, intervals) {

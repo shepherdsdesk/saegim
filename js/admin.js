@@ -147,8 +147,8 @@ async function viewVerses(c) {
     <div class="actions"><button class="btn md" data-close>닫기</button></div>`, {
     onMount(el) {
       el.style.maxWidth = '980px';
-      $$('[data-save]', el).forEach((b) => b.onclick = async () => { const row = b.closest('.verse-item'); await DB.set('verses/' + row.dataset.id, { text: $('.vt', row).textContent.trim() }); toast('저장했습니다'); });
-      $$('[data-rm]', el).forEach((b) => b.onclick = async () => { const row = b.closest('.verse-item'); await DB.del('verses/' + row.dataset.id); row.remove(); await DB.set('courses/' + c.id, { count: op.inc(-1) }); toast('지웠습니다'); });
+      $$('[data-save]', el).forEach((b) => b.onclick = async () => { const row = b.closest('.verse-item'); await DB.set('verses/' + row.dataset.id, { text: $('.vt', row).textContent.trim() }); await DB.set('courses/' + c.id, { updatedAt: Date.now() }); toast('저장했습니다'); });
+      $$('[data-rm]', el).forEach((b) => b.onclick = async () => { const row = b.closest('.verse-item'); await DB.del('verses/' + row.dataset.id); row.remove(); await DB.set('courses/' + c.id, { count: op.inc(-1), updatedAt: Date.now() }); toast('지웠습니다'); });
     }
   });
 }
@@ -389,9 +389,9 @@ async function settings() {
     const f = inp.files[0]; if (!f) return; const k = inp.dataset.up;
     const data = await shrinkImage(f, k === 'logo' ? 512 : 1600, k === 'logo' ? 'image/png' : 'image/jpeg', 0.8);
     if (data.length > 900000) return toast('사진이 너무 큽니다. 더 작은 사진을 골라 주세요');
-    await DB.set('assets/' + k, { data, updatedAt: Date.now() }, false); toast('올렸습니다'); A.settings = s; settings();
+    const ver = Date.now(); await DB.set('assets/' + k, { data, updatedAt: ver }, false); await DB.set('config/app', { assetsVersion: ver }); s.assetsVersion = ver; toast('올렸습니다'); A.settings = s; settings();
   });
-  $$('[data-rmimg]').forEach((b) => b.onclick = async (e) => { e.preventDefault(); e.stopPropagation(); await DB.del('assets/' + b.dataset.rmimg); toast('지웠습니다'); settings(); });
+  $$('[data-rmimg]').forEach((b) => b.onclick = async (e) => { e.preventDefault(); e.stopPropagation(); await DB.del('assets/' + b.dataset.rmimg); const ver = Date.now(); await DB.set('config/app', { assetsVersion: ver }); s.assetsVersion = ver; A.settings = s; toast('지웠습니다'); settings(); });
   $('#save').onclick = async () => {
     s.appName = $('#appName').value.trim() || '새김'; s.churchName = $('#churchName').value.trim();
     const iv = $('#intervals').value.split(/[,\s]+/).map(Number).filter((n) => n > 0); if (iv.length) s.intervals = iv;
