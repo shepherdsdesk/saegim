@@ -262,10 +262,11 @@ function renderQuestion() {
       <div class="q-chunks">${q.chunks.map((c, i) => `<span class="q-chunk">${i + 1}번 조각 · ${esc(c.split(' ').map((w) => [...w].map(() => '○').join('')).join(' '))}</span>`).join('')}</div>`;
   }
   root.innerHTML = `<div class="tvw">${head(headRight())}<div class="play">
-    <div class="play-main">${playTop(`<span class="answered" id="ac"></span><div class="timer" style="--deg:360deg"><span>${H.sel.time}</span></div><button class="tv-btn" id="sk" data-next>바로 정답</button>`)}
+    <div class="play-main">${playTop(`<span class="answered" id="ac"></span><div class="timer" style="--deg:360deg"><span>${H.sel.time}</span></div><button class="tv-btn" id="sk" data-next>바로 정답</button><button class="tv-btn" id="qt">끝내기</button>`)}
       <div class="q-area fade-in">${body}</div><div class="scene"><div class="sc-inner">${sceneHTML()}</div></div></div>${sideHTML()}</div></div>`;
   updateAnswered(); fitScene();
   $('#sk').onclick = () => { clearInterval(H.timer); reveal(); };
+  $('#qt').onclick = () => { if (confirm('대전을 여기서 끝내고 결과를 보여 줄까요?')) { clearInterval(H.timer); finish(); } };
 }
 
 /* ───────── 5. 채점 ───────── */

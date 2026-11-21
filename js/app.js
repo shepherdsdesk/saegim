@@ -641,11 +641,18 @@ function renderBattle(code, r, me) {
   const myScore = (r.scores || {})[S.uid] || 0;
   const rank = r.ranks ? r.ranks[S.uid] : null;
   const out = r.mode === 'survival' && r.alive && r.alive[S.uid] === false;
-  const header = `<header class="bt-top"><div class="l"><span class="eyebrow">방 ${code.slice(0, 3)} ${code.slice(3)} · ${esc(r.theme || '')}</span><span class="head" style="font-size:17px">${r.status === 'lobby' ? esc(BATTLE_MODES[r.mode]?.name || '') : `문제 ${(r.qi || 0) + 1} <span class="muted">/ ${r.questions ? r.questions.length : ''}</span>`}</span></div>
+  const header = `<header class="bt-top"><button class="icon-btn bt-exit" id="bx" aria-label="대전 나가기">${icon('back', 20)}</button><div class="l"><span class="eyebrow">방 ${code.slice(0, 3)} ${code.slice(3)} · ${esc(r.theme || '')}</span><span class="head" style="font-size:17px">${r.status === 'lobby' ? esc(BATTLE_MODES[r.mode]?.name || '') : `문제 ${(r.qi || 0) + 1} <span class="muted">/ ${r.questions ? r.questions.length : ''}</span>`}</span></div>
     <div class="r"><span class="eyebrow">${esc(me.name)}${rank ? ` · ${rank}위` : ''}</span><span class="head num" style="font-size:17px;color:var(--ac)">${fmt(myScore)}점</span></div></header>`;
-  const wait = (big, small) => { root.innerHTML = `<div class="bt">${header}<div class="bt-body"><div class="bt-wait fade-in"><span class="eyebrow ac">${small}</span><p class="big">${big}</p></div></div><p class="credit" style="padding-bottom:20px">만든 곳 <b>AI목양지원센터</b></p></div>`; };
+  const leaveTo = () => (S.user ? '#home' : '#battle');
+  const bindExit = () => { const b = $('#bx'); if (b) b.onclick = async () => { if (r.status === 'end' || (await confirmExit())) go(leaveTo()); }; };
+  const wait = (big, small, end = false) => {
+    root.innerHTML = `<div class="bt">${header}<div class="bt-body"><div class="bt-wait fade-in"><span class="eyebrow ac">${small}</span><p class="big">${big}</p></div></div>
+      ${end ? `<footer class="learn-foot"><a class="btn" href="#battle">다른 대전</a><a class="btn pr" href="${leaveTo()}">${S.user ? '홈으로' : '처음으로'}</a></footer>` : ''}
+      <p class="credit" style="padding-bottom:20px">만든 곳 <b>AI목양지원센터</b></p></div>`;
+    bindExit();
+  };
   if (r.status === 'lobby') return wait('곧 시작합니다', `${esc(me.name)} 님 입장 완료`);
-  if (r.status === 'end') return wait(rank ? `${rank}위 · ${fmt(myScore)}점` : '대전이 끝났습니다', '수고하셨습니다');
+  if (r.status === 'end') return wait(rank ? `${rank}위 · ${fmt(myScore)}점` : '대전이 끝났습니다', '수고하셨습니다', true);
   if (r.status === 'reveal') {
     if (out) return wait('탈락했지만<br>끝까지 응원해 주세요', '노아의 방주 밖');
     if (res && phoneSound() && renderBattle._snd !== code + r.qi) { renderBattle._snd = code + r.qi; if (res.ok) { Sound.correct(); Sound.vibrate([40, 40, 40]); } else { Sound.wrong(); Sound.vibrate(160); } }
@@ -659,11 +666,11 @@ function renderBattle(code, r, me) {
   const send = async (val) => { Sound.configure({ sfx: phoneSound(), bgm: false, volume: 0.6 }); Sound.unlock(); Sound.click(); Sound.vibrate(25); await DB.update(pPath, { [ansKey]: { v: val, at: op.now() } }); };
   const dur = (r.time || 20) * 1000; const started = Date.now();
   const timer = `<div class="bt-timer"><div class="bar"><i id="tb" style="width:100%"></i></div><span class="head num" id="tt" style="font-size:14px;text-align:right">${r.time || 20}초</span></div>`;
-  const body = (html) => { root.innerHTML = `<div class="bt">${header}${timer}<div class="bt-body fade-in">${html}</div></div>`; };
+  const body = (html) => { root.innerHTML = `<div class="bt">${header}${timer}<div class="bt-body fade-in">${html}</div></div>`; bindExit(); };
   const shapes = ['M12 3 22 21H2z', 'M12 2 22 12 12 22 2 12z', 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z', 'M3 3h18v18H3z'];
   const sent = () => { $$('button,input,textarea', $('.bt-body')).forEach((b) => b.disabled = true); const n = document.createElement('p'); n.className = 'verdict'; n.innerHTML = icon('check', 18) + '보냈습니다 · TV를 봐 주세요'; $('.bt-body').appendChild(n); };
   if (q.kind === 'choice') {
-    body(`<span class="eyebrow ac">${esc(q.prompt)}</span><p class="verse" style="margin:14px 0 0;font-size:calc(20px * var(--k));line-height:1.8">${esc(q.display)}</p>${q.sub ? `<span class="small muted" style="margin-top:10px;font-weight:600">${esc(q.sub)}</span>` : ''}
+    body(`<span class="eyebrow ac">${esc(q.prompt)}</span><p class="verse" style="margin:14px 0 0;font-size:calc(20px * var(--k));line-height:1.8">${q.words && q.blankIndex != null ? q.words.map((w, i) => (i === q.blankIndex ? '<span class="bt-blank"></span>' : esc(w))).join(' ') : esc(q.display)}</p>${q.sub ? `<span class="small muted" style="margin-top:10px;font-weight:600">${esc(q.sub)}</span>` : ''}
       <div class="bt-choices">${q.choices.map((c, i) => `<button class="bt-choice c${i} ${q.refChoices ? 'ref' : ''}" data-i="${i}"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff" fill-opacity=".85" aria-hidden="true"><path d="${shapes[i]}"/></svg><span>${esc(c)}</span></button>`).join('')}</div>`);
     $$('.bt-choice').forEach((b) => b.onclick = async () => { b.classList.add('picked'); await send(+b.dataset.i); sent(); });
   } else if (q.kind === 'order') {
@@ -751,4 +758,12 @@ async function scanQR(onCode) {
     console.error(e); stop();
     const m = $('#sm'); if (m) m.innerHTML = '카메라를 쓸 수 없습니다. 브라우저에서 카메라 허용을 켜거나, 방 코드를 넣어 주세요.';
   }
+}
+
+function confirmExit() {
+  return new Promise((resolve) => {
+    modal(`<h3>대전에서 나갈까요?</h3><p class="muted" style="margin:0;line-height:1.7">지금까지 얻은 점수는 TV 순위에 남습니다. 다시 들어오려면 방 코드나 QR로 들어오시면 됩니다.</p><div class="actions"><button class="btn md" data-close id="no">계속하기</button><button class="btn md pr" id="yes">나가기</button></div>`, {
+      onMount(el, close) { $('#yes', el).onclick = () => { close(); resolve(true); }; $('#no', el).onclick = () => resolve(false); }
+    });
+  });
 }
