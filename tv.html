@@ -13,9 +13,10 @@
 <link rel="modulepreload" href="js/core.js">
 <link rel="stylesheet" href="css/saegim.css">
 <link rel="stylesheet" href="css/tv.css">
+<script>window.addEventListener('error',function(e){var r=document.getElementById('root');if(r&&!r.dataset.ok){r.innerHTML='<div style="min-height:100vh;display:grid;place-items:center;padding:24px;font:15px/1.7 -apple-system,sans-serif;color:#676B74;text-align:center">화면을 여는 중 문제가 생겼습니다.<br>새로 고침해 주세요.<br><small style="color:#B23A2A">'+(e.message||'')+'</small></div>'}});window.addEventListener('unhandledrejection',function(e){console.error(e.reason)});</script>
 </head>
-<body class="tv">
-<div id="root"></div>
+<body class="tv" data-btheme="여리고 성벽">
+<div id="root"><div style="position:fixed;inset:0;display:grid;place-items:center;color:#BFAE97;font-size:18px">대전 화면을 여는 중…</div></div>
 <script type="module" src="js/tv.js"></script>
 </body>
 </html>

@@ -4,6 +4,7 @@ import {
   today, addDays, shuffle, fmt, chosung, words, norm, gradeText, gradeWord, diffHTML, scheduleNext,
   BATTLE_MODES, registerSW, MOCK, missedWords, GRADE, WEAK_LINE, applyLook, cachedSettings
 } from './core.js';
+import { Sound } from './sound.js';
 
 const root = $('#root');
 const S = { settings: null, user: null, prog: null, courses: [], verses: {}, course: null, logo: null, uid: null, installEvt: null };
@@ -642,6 +643,7 @@ function renderBattle(code, r, me) {
   if (r.status === 'end') return wait(rank ? `${rank}위 · ${fmt(myScore)}점` : '대전이 끝났습니다', '수고하셨습니다');
   if (r.status === 'reveal') {
     if (out) return wait('탈락했지만<br>끝까지 응원해 주세요', '노아의 방주 밖');
+    if (res && renderBattle._snd !== code + r.qi) { renderBattle._snd = code + r.qi; if (res.ok) { Sound.correct(); Sound.vibrate([40, 40, 40]); } else { Sound.wrong(); Sound.vibrate(160); } }
     return wait(res ? (res.ok ? `정답입니다<br><span class="num" style="color:var(--ac)">+${fmt(res.gain)}</span>` : '아쉽지만<br>다음 문제에서') : '답을 보내지 못했어요', '결과');
   }
   if (r.status !== 'q') return;
@@ -649,7 +651,7 @@ function renderBattle(code, r, me) {
   const q = r.questions[r.qi];
   const ansKey = 'ans.q' + r.qi;
   const pPath = `rooms/${code}/players/${S.uid}`;
-  const send = async (val) => { await DB.update(pPath, { [ansKey]: { v: val, at: op.now() } }); };
+  const send = async (val) => { Sound.configure({ sfx: (S.settings.battle || {}).sound !== false, bgm: false, volume: 0.6 }); Sound.unlock(); Sound.click(); Sound.vibrate(25); await DB.update(pPath, { [ansKey]: { v: val, at: op.now() } }); };
   const dur = (r.time || 20) * 1000; const started = Date.now();
   const timer = `<div class="bt-timer"><div class="bar"><i id="tb" style="width:100%"></i></div><span class="head num" id="tt" style="font-size:14px;text-align:right">${r.time || 20}초</span></div>`;
   const body = (html) => { root.innerHTML = `<div class="bt">${header}${timer}<div class="bt-body fade-in">${html}</div></div>`; };

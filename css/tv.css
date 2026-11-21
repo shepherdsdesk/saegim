@@ -173,3 +173,8 @@ body.tv[data-btheme="갈멜산 제단"] { --bg:#1E1512; --sf:#2A1E19; --ink:#F7E
 body.tv[data-btheme="노아의 방주"] { --bg:#F2EEE6; --sf:#FFFFFF; --ink:#1F2430; --sub:#646A75; --ac:#2E6D9E; --soft:#E3E9EF; --line:#DDD6CA; --pr:#1F2430; --prt:#F2EEE6; --ok:#2E6A4F; }
 body.tv[data-btheme="아케이드"] { --bg:#0B0A14; --sf:#15132A; --ink:#F2F0FF; --sub:#A7A2CC; --ac:#FF4FA3; --soft:#1E1A3A; --line:#2A2550; --pr:#38E1FF; --prt:#0B0A14; --ok:#7CF5B4; }
 body.tv[data-btheme="아케이드"] .tv-title { text-shadow: 0 0 1.2vw rgba(56,225,255,.45); }
+
+.mute-btn { position: fixed; right: 1.4vw; top: 1.1vw; z-index: 50; height: 2.6vw; min-height: 36px; padding: 0 1vw; border-radius: 1.3vw; border: 1px solid var(--line); background: var(--sf); color: var(--ink); display: inline-flex; align-items: center; gap: .5vw; font-size: .85vw; font-weight: 600; white-space: nowrap; opacity: .75; }
+.mute-btn:hover { opacity: 1; }
+.mute-btn .ico { width: 1vw; height: 1vw; min-width: 14px; min-height: 14px; }
+.mute-btn.off { color: var(--sub); text-decoration: line-through; }

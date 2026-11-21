@@ -52,7 +52,7 @@ function shell(page, head, body) {
   root.innerHTML = `<div class="ad">
     <aside class="ad-side">
       <span class="brand">${markSVG(34)}<span style="display:flex;flex-direction:column;gap:3px"><span class="brand-name" style="font-size:19px">${esc(A.settings.appName || '새김')}</span><span class="brand-sub">관리자</span></span></span>
-      <nav class="ad-nav">${MENU.map(([k, l, i]) => `<a href="#${k}" class="${page === k ? 'on' : ''}">${icon(i, 18)}${l}</a>`).join('')}</nav>
+      <nav class="ad-nav">${MENU.map(([k, l, i]) => k === 'battle' ? `<a href="tv.html${MOCK ? '?mock' : ''}" target="_blank" rel="noopener">${icon(i, 18)}${l}</a>` : `<a href="#${k}" class="${page === k ? 'on' : ''}">${icon(i, 18)}${l}</a>`).join('')}</nav>
       <div class="ad-foot"><span>만든 곳</span><b>AI목양지원센터</b><a href="#" id="lo" style="margin-top:12px;color:var(--sub)">로그아웃</a></div>
     </aside>
     <main class="ad-main"><div class="ad-wrap fade-in">${head}${body}</div></main></div>`;
@@ -68,7 +68,7 @@ async function refresh() {
 async function route() {
   const page = (location.hash.replace('#', '') || 'dash').split('/')[0];
   await refresh();
-  if (page === 'battle') { window.open('tv.html' + (MOCK ? '?mock' : ''), '_blank'); location.hash = '#dash'; return; }
+  if (page === 'battle') { location.href = 'tv.html' + (MOCK ? '?mock' : ''); return; }
   ({ dash, courses, users, teams, report, admins, settings }[page] || dash)();
 }
 
@@ -332,7 +332,7 @@ function addDays(ymd, n) { const d = new Date(ymd + 'T00:00:00'); d.setDate(d.ge
 
 /* ───────── 환경 설정 ───────── */
 async function settings() {
-  const s = structuredClone(A.settings);
+  const s = JSON.parse(JSON.stringify(A.settings));
   const assets = {};
   for (const k of ['bg', 'logo', 'tvbg']) assets[k] = await DB.get('assets/' + k).catch(() => null);
   const P = { '새벽': ['#FAF8F4', '#B23A2A'], '감람산': ['#F3F4EE', '#4C6B35'], '성막': ['#10162A', '#D4AF5E'], '광야': ['#F6EFE6', '#A2451F'], '별밤': ['#0C0F14', '#E4806E'] };
@@ -367,6 +367,9 @@ async function settings() {
       <div class="set-row"><div class="lab"><b>제한 시간</b><span>문제 하나당</span></div>${seg('time', ['10', '15', '20', '30', '45', '60'], String(s.battle.time))}</div>
       <div class="set-row"><div class="lab"><b>문제 수</b><span>한 판에 나오는 문제</span></div>${seg('count', ['5', '7', '10', '15', '20'], String(s.battle.count))}</div>
       <div class="set-row"><div class="lab"><b>점수 방식</b><span>빨리 맞힐수록 더 받을지</span></div>${seg('scoring', ['정답만', '정답 + 속도'], s.battle.scoring === 'speed' ? '정답 + 속도' : '정답만')}</div>
+      <div class="set-row"><div class="lab"><b>효과음</b><span>문제 시작, 남은 시간, 정답, 테마 소리</span></div><button class="switch ${s.battle.sound !== false ? 'on' : ''}" id="bsound" aria-label="효과음"></button></div>
+      <div class="set-row"><div class="lab"><b>배경 음악</b><span>테마마다 다른 잔잔한 반복 선율</span></div><button class="switch ${s.battle.bgm !== false ? 'on' : ''}" id="bbgm" aria-label="배경 음악"></button></div>
+      <div class="set-row"><div class="lab"><b>소리 크기</b><span>TV에서 나는 소리의 기본 크기</span></div>${seg('volume', ['작게', '보통', '크게'], ({ 0.4: '작게', 0.7: '보통', 1: '크게' })[s.battle.volume ?? 0.7] || '보통')}</div>
       <div class="set-row"><div class="lab"><b>기본 대전 테마</b><span>TV에 처음 뜨는 배경</span></div><select class="input" id="btheme" style="max-width:360px">${BATTLE_THEMES.map((t) => `<option ${s.battle.theme === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
     </section>
     <div style="margin-top:56px;display:flex;align-items:center;justify-content:space-between;padding:22px 0;border-top:1px solid var(--ink);font-size:13px;color:var(--sub)"><span>새김 INSCRIBE 1.0</span><span>만든 곳 <b style="color:var(--ink)">AI목양지원센터</b></span></div>`);
@@ -378,11 +381,13 @@ async function settings() {
     $$('button', g).forEach((x) => x.classList.toggle('on', x === b)); const k = g.dataset.seg; const v = b.dataset.v;
     if (k === 'uiFont') s.uiFont = v; if (k === 'textSize') s.textSize = v; if (k === 'ttsRate') s.ttsRate = Number(v);
     if (k === 'rule') { s.rule = v; $('#rd').textContent = ruleDesc[v]; }
-    if (k === 'time') s.battle.time = Number(v); if (k === 'count') s.battle.count = Number(v); if (k === 'scoring') s.battle.scoring = v === '정답만' ? 'correct' : 'speed';
+    if (k === 'volume') s.battle.volume = { '작게': 0.4, '보통': 0.7, '크게': 1 }[v]; if (k === 'time') s.battle.time = Number(v); if (k === 'count') s.battle.count = Number(v); if (k === 'scoring') s.battle.scoring = v === '정답만' ? 'correct' : 'speed';
     live();
   }));
   $$('[data-stage]').forEach((b) => b.onclick = () => { const k = b.dataset.stage; s.stages[k] = s.stages[k] === false; b.classList.toggle('on', s.stages[k] !== false); });
   $$('[data-step]').forEach((b) => b.onclick = () => { s.dailyNew = Math.max(1, Math.min(10, s.dailyNew + Number(b.dataset.step))); $('#dn').textContent = s.dailyNew + '구절'; });
+  $('#bsound').onclick = (e) => { s.battle.sound = s.battle.sound === false; e.currentTarget.classList.toggle('on', s.battle.sound !== false); };
+  $('#bbgm').onclick = (e) => { s.battle.bgm = s.battle.bgm === false; e.currentTarget.classList.toggle('on', s.battle.bgm !== false); };
   $('#easyDefault').onclick = (e) => { s.easyDefault = !s.easyDefault; e.currentTarget.classList.toggle('on', s.easyDefault); };
   $('#bgOpacity').oninput = (e) => { s.bgOpacity = Number(e.target.value); $('#bgOv').textContent = Math.round(s.bgOpacity * 100) + '%'; };
   $$('[data-up]').forEach((inp) => inp.onchange = async () => {

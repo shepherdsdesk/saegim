@@ -168,7 +168,7 @@ export const DEFAULTS = {
   ttsRate: 1.0,
   easyDefault: false,
   rule: '보통',
-  battle: { time: 20, count: 10, scoring: 'speed', theme: '여리고 성벽' },
+  battle: { time: 20, count: 10, scoring: 'speed', theme: '여리고 성벽', sound: true, bgm: true, volume: 0.7 },
   weeklyVerse: null
 };
 export const THEMES = ['새벽', '감람산', '성막', '광야', '별밤'];
@@ -182,7 +182,7 @@ export const STAGES = [
 export async function loadSettings() {
   let cfg = null;
   try { cfg = await DB.get('config/app'); } catch (e) { console.warn(e); }
-  const s = deepMerge(structuredClone(DEFAULTS), cfg || {});
+  const s = deepMerge(JSON.parse(JSON.stringify(DEFAULTS)), cfg || {});
   return s;
 }
 function deepMerge(a, b) {

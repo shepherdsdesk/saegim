@@ -4,6 +4,7 @@ import {
   BATTLE_MODES, BATTLE_THEMES, roomCode, MOCK
 } from './core.js';
 import { qrcode } from '../vendor/qrcode.mjs';
+import { Sound } from './sound.js';
 
 const root = $('#root');
 const H = { settings: null, courses: [], teams: [], sel: null, code: null, room: null, players: [], offs: [], timer: null, adv: null, rates: [], localStart: 0 };
@@ -11,14 +12,16 @@ const SHAPES = ['M12 3 22 21H2z', 'M12 2 22 12 12 22 2 12z', 'M12 2a10 10 0 1 0 
 const CCOL = ['#A8432F', '#2E5D8A', '#8A6519', '#36664E'];
 
 (async function boot() {
-  const u = await whenAuthed(); H.uid = u.uid;
-  H.settings = await loadSettings();
-  await applySettings(H.settings, { bgKey: 'tvbg' });
-  const [cs, ts] = await Promise.all([DB.list('courses'), DB.list('teams')]);
+  const [u, settings] = await Promise.all([whenAuthed(), loadSettings()]);
+  H.uid = u.uid; H.settings = settings;
+  const [, cs, ts] = await Promise.all([applySettings(H.settings, { bgKey: 'tvbg' }), DB.list('courses'), DB.list('teams')]);
   H.courses = cs.filter((c) => c.published !== false && (c.count || 0) > 0).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
   H.teams = ts.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
   const b = H.settings.battle || {};
   H.sel = { courses: new Set(H.courses.slice(0, 1).map((c) => c.id)), mode: 'speed', theme: b.theme || '여리고 성벽', teamMode: false, count: b.count || 10, time: b.time || 20, rule: H.settings.rule || '보통', scoring: b.scoring || 'speed' };
+  Sound.configure({ sfx: b.sound !== false, bgm: b.bgm !== false, volume: b.volume ?? 0.7 });
+  muteButton();
+  document.addEventListener('pointerdown', () => Sound.unlock(), { once: true });
   setup();
   document.addEventListener('keydown', (e) => {
     if (e.key === ' ' || e.key === 'ArrowRight' || e.key === 'Enter') { const n = $('[data-next]'); if (n && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); n.click(); } }
@@ -30,6 +33,7 @@ const head = (right = '') => `<header class="tv-head">${`<span class="brand">${m
 
 /* ───────── 1. 설정 ───────── */
 function setup() {
+  Sound.stopBgm();
   setBTheme(H.sel.theme);
   const S = H.sel;
   const seg = (key, opts, cur, label = (x) => x) => `<div class="tv-seg" data-seg="${key}">${opts.map((o) => `<button class="${String(o) === String(cur) ? 'on' : ''}" data-v="${o}">${label(o)}</button>`).join('')}</div>`;
@@ -81,7 +85,8 @@ async function createRoom() {
   H.offs.forEach((f) => f()); H.offs = [];
   H.offs.push(DB.onCol(`rooms/${code}/players`, (ps) => { H.players = ps; onPlayers(); }));
   H.offs.push(DB.onDoc('rooms/' + code, (r) => { H.room = r; }));
-  H.rates = [];
+  H.rates = []; H.lastCount = 0;
+  Sound.unlock(); Sound.bgm(S.theme, 'lobby');
   lobby();
 }
 function joinURL() {
@@ -125,6 +130,8 @@ function teamOf(id) { return (H.room && H.room.teams || []).find((t) => t.id ===
 function onPlayers() {
   if (H.view === 'lobby') {
     const pg = $('#pg'); if (!pg) return;
+    if (H.players.length > (H.lastCount || 0)) Sound.join();
+    H.lastCount = H.players.length;
     $('#pc').textContent = H.players.length;
     pg.innerHTML = H.players.slice(0, 40).map((p) => `<div class="person"><i style="background:${(teamOf(p.team) || {}).color || 'var(--ac)'}"></i><span>${esc(p.name)}</span></div>`).join('');
     if (H.room && H.room.teamMode) $('#tsum').innerHTML = H.room.teams.map((t) => `<span style="display:flex;align-items:center;gap:.6vw;white-space:nowrap"><i style="width:.65vw;height:.65vw;border-radius:50%;background:${t.color}"></i>${esc(t.name)} ${H.players.filter((p) => p.team === t.id).length}명</span>`).join('');
@@ -200,9 +207,11 @@ async function ask(qi) {
   H.localStart = Date.now(); H.view = 'q'; H.qi = qi;
   await DB.update('rooms/' + H.code, patch);
   renderQuestion();
-  const dur = H.sel.time * 1000;
+  Sound.start(); Sound.bgm(H.sel.theme, 'play');
+  const dur = H.sel.time * 1000; let lastSec = null;
   H.timer = setInterval(() => {
     const left = Math.max(0, dur - (Date.now() - H.localStart));
+    const sec = Math.ceil(left / 1000); if (left > 0 && sec <= 5 && sec !== lastSec) { lastSec = sec; Sound.tick(sec <= 3); }
     const t = $('.timer'); if (t) { t.style.setProperty('--deg', (left / dur) * 360 + 'deg'); $('span', t).textContent = Math.ceil(left / 1000); }
     if (left <= 0) { clearInterval(H.timer); reveal(); } else maybeEarly();
   }, 200);
@@ -307,6 +316,7 @@ async function reveal() {
     const ranks = {}; H.players.map((p) => ({ id: p.id, s: scores[p.id] || 0 })).sort((a, b) => b.s - a.s).forEach((x, i) => (ranks[x.id] = i + 1));
     await DB.update('rooms/' + H.code, { status: 'reveal', results, scores, alive, ranks, teamScores, progress: H.rates.reduce((s, x) => s + (x || 0), 0) / H.questions.length });
     H.room = { ...r, results, scores, alive, ranks, teamScores, status: 'reveal' };
+    Sound.reveal(rate); if (rate > 0) setTimeout(() => Sound.theme(H.sel.theme, false), 450);
     renderReveal(q, dist, okCount, ids.length, relayLit);
   } finally { revealing = false; }
 }
@@ -336,6 +346,7 @@ function renderReveal(q, dist, okCount, n, relayLit) {
 /* ───────── 6. 마무리 ───────── */
 async function finish() {
   H.view = 'end'; clearTimeout(H.adv);
+  Sound.stopBgm(); Sound.fanfare(); setTimeout(() => Sound.theme(H.sel.theme, true), 1300);
   const r = H.room || {}; const sc = r.scores || {};
   const ranked = H.players.map((p) => ({ ...p, sc: sc[p.id] || 0 })).sort((a, b) => b.sc - a.sc);
   let teamWin = null;
@@ -404,3 +415,10 @@ function fitScene() {
   });
 }
 window.addEventListener('resize', fitScene);
+
+function muteButton() {
+  const b = document.createElement('button'); b.className = 'mute-btn'; b.type = 'button';
+  const draw = () => { b.innerHTML = Sound.muted ? `${icon('sound', 18)}<span>소리 꺼짐</span>` : `${icon('sound', 18)}<span>소리 켜짐</span>`; b.classList.toggle('off', Sound.muted); b.setAttribute('aria-pressed', String(!Sound.muted)); };
+  b.onclick = () => { Sound.unlock(); Sound.toggleMute(); draw(); };
+  draw(); document.body.appendChild(b);
+}
