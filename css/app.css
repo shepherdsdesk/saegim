@@ -200,3 +200,85 @@ html.kb-open .tabs, html.kb-open .credit { display: none; }
 .top .streak .who { font-weight: 600; max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
 .top .streak .sep { width: 1px; height: 14px; background: var(--line); margin: 0 6px; }
 .my-code { font-family: var(--f-head); font-size: 44px; font-weight: 600; letter-spacing: .12em; text-align: center; margin: 14px 0 12px; white-space: nowrap; color: var(--ac); }
+
+/* ═════════ 움직임 (학습 · 복습 · 대전) ═════════ */
+.learn-body.stage-in { animation: stageIn .42s cubic-bezier(.2,.9,.3,1) both; }
+@keyframes stageIn { from { opacity: 0; transform: translateX(28px); } }
+.mo-in { animation: moIn .42s cubic-bezier(.2,1.3,.4,1) both; animation-delay: calc(var(--si) * var(--sg)); }
+@keyframes moIn { from { opacity: 0; transform: translateY(10px) scale(.92); } }
+.steps i { transition: background .3s; }
+.steps i.pop { animation: stepPop .5s cubic-bezier(.2,1.6,.4,1); }
+@keyframes stepPop { 40% { transform: scaleY(2.2); } }
+.steps i.now { position: relative; overflow: hidden; }
+.steps i.now::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.6), transparent); animation: stepShine 1.8s ease-in-out infinite; }
+@keyframes stepShine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.read-verse .rw { display: inline-block; }
+/* 맞힘 · 틀림 */
+.choice.ok { animation: okPop .45s cubic-bezier(.2,1.6,.4,1); }
+@keyframes okPop { 40% { transform: scale(1.08); } }
+.choice.no { animation: shake .4s; }
+.choice.fade, .bt-choice.fade { opacity: .35; transform: scale(.97); transition: opacity .25s, transform .25s; }
+.w.just { animation: wordLand .55s cubic-bezier(.2,1.6,.4,1); }
+@keyframes wordLand { 0% { transform: translateY(-10px) scale(1.3); color: var(--ok); } 100% { transform: none; } }
+.w.blank.cur { animation: curPulse 1.4s ease-in-out infinite; }
+@keyframes curPulse { 50% { background: color-mix(in srgb, var(--ac) 14%, transparent); } }
+.tile.just { animation: tileIn .4s cubic-bezier(.2,1.5,.4,1); }
+@keyframes tileIn { from { transform: translateY(18px) scale(.7); opacity: .3; } }
+.board.solved { box-shadow: 0 0 0 3px var(--ok); transition: box-shadow .2s; }
+.board.solved .tile { animation: tileWave .5s ease both; }
+.board.solved .tile:nth-child(2) { animation-delay: .05s; } .board.solved .tile:nth-child(3) { animation-delay: .1s; } .board.solved .tile:nth-child(4) { animation-delay: .15s; } .board.solved .tile:nth-child(5) { animation-delay: .2s; } .board.solved .tile:nth-child(6) { animation-delay: .25s; } .board.solved .tile:nth-child(n+7) { animation-delay: .3s; }
+@keyframes tileWave { 50% { transform: translateY(-8px); background: color-mix(in srgb, var(--ok) 18%, var(--sf)); } }
+.board.wrongfl { box-shadow: 0 0 0 3px var(--bad); }
+.line-input.okfl { border-color: var(--ok) !important; animation: okPop .3s ease; }
+.line-input.okfl input { color: var(--ok); }
+/* 색종이 · 떠오르기 · 칭찬 띠 */
+.mo-burst { position: fixed; z-index: 980; pointer-events: none; width: 0; height: 0; }
+.mo-burst i { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 2px; animation: moBurst .75s cubic-bezier(.15,.8,.3,1) forwards; }
+@keyframes moBurst { 0% { transform: translate(0, 0) scale(.4); opacity: 1; } 70% { opacity: 1; } 100% { transform: translate(var(--x), calc(var(--y) + 30px)) scale(1) rotate(200deg); opacity: 0; } }
+.mo-float { position: fixed; z-index: 981; transform: translate(-50%, -100%); pointer-events: none; font-family: var(--f-head); font-weight: 700; font-size: 18px; color: var(--ok); white-space: nowrap; animation: moFloat 1.3s ease-out forwards; }
+.mo-float.combo { color: var(--ac); font-size: 22px; }
+@keyframes moFloat { 0% { opacity: 0; transform: translate(-50%, -60%) scale(.6); } 20% { opacity: 1; transform: translate(-50%, -110%) scale(1.15); } 100% { opacity: 0; transform: translate(-50%, -260%); } }
+.mo-cheer { position: fixed; bottom: calc(env(safe-area-inset-bottom) + 112px); left: 50%; z-index: 979; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px 0 8px; border-radius: 22px; background: var(--ink); color: var(--bg); white-space: nowrap; box-shadow: 0 8px 24px rgba(0,0,0,.18); pointer-events: none; animation: cheer 1.5s cubic-bezier(.2,1.3,.4,1) forwards; }
+.mo-cheer .ck { width: 28px; height: 28px; border-radius: 50%; background: var(--ok); color: #fff; display: grid; place-items: center; }
+.mo-cheer b { font-size: 15px; } .mo-cheer em { font-style: normal; font-size: 13px; opacity: .7; font-variant-numeric: tabular-nums; }
+@keyframes cheer { 0% { opacity: 0; transform: translate(-50%, -20px) scale(.8); } 15% { opacity: 1; transform: translate(-50%, 0) scale(1); } 80% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -12px); } }
+/* 결과 */
+.score-rows.grow .score-row b { animation: barGrow .9s cubic-bezier(.3,.8,.3,1) both; }
+.score-rows.grow .score-row:nth-child(2) b { animation-delay: .12s; } .score-rows.grow .score-row:nth-child(3) b { animation-delay: .24s; } .score-rows.grow .score-row:nth-child(4) b { animation-delay: .36s; } .score-rows.grow .score-row:nth-child(n+5) b { animation-delay: .48s; }
+@keyframes barGrow { from { width: 0 !important; } }
+.score-big .grade { animation: moIn .5s cubic-bezier(.2,1.4,.4,1) 1s both; }
+.xp { animation: moIn .5s ease 1.2s both; }
+.done-hero .star.on { transform: scale(0); }
+.done-hero .star.on.pop { animation: starPop .5s cubic-bezier(.2,1.8,.4,1) forwards; }
+@keyframes starPop { 0% { transform: scale(0) rotate(-40deg); } 100% { transform: scale(1); } }
+.done-hero .reward { animation: rewardIn .6s cubic-bezier(.2,1.4,.4,1) 1.4s both; }
+@keyframes rewardIn { from { opacity: 0; transform: translateY(16px) scale(.9) rotate(-3deg); } }
+.done-hero .reward .sticker { animation: stickerSpin .8s cubic-bezier(.2,1.4,.4,1) 1.5s both; }
+@keyframes stickerSpin { from { transform: rotate(-200deg) scale(.2); } }
+/* 대전 (휴대폰) */
+.bt-badge { width: 76px; height: 76px; display: grid; place-items: center; margin-bottom: 14px; }
+.bt-badge svg { width: 100%; height: 100%; }
+.bt-badge circle { fill: none; stroke-width: 4; stroke-dasharray: 151; stroke-dashoffset: 151; animation: draw .5s ease forwards; }
+.bt-badge path { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 60; stroke-dashoffset: 60; animation: draw .35s ease .45s forwards; }
+.bt-badge.ok circle, .bt-badge.ok path { stroke: var(--ok); }
+.bt-badge.ok { animation: okPop .5s cubic-bezier(.2,1.6,.4,1) .7s; }
+.bt-badge.no circle, .bt-badge.no path { stroke: var(--bad); }
+.bt-badge.no { animation: shake .45s .8s; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+.bt-badge.rank { width: 96px; height: 96px; border-radius: 50%; background: var(--soft); flex-direction: column; display: flex; align-items: center; justify-content: center; animation: rankIn .7s cubic-bezier(.2,1.6,.4,1) both; }
+.bt-badge.rank b { font-family: var(--f-head); font-size: 40px; line-height: 1; color: var(--ac); }
+.bt-badge.rank em { font-style: normal; font-size: 13px; font-weight: 700; color: var(--sub); }
+.bt-badge.rank.r1 { background: #FFE9A8; } .bt-badge.rank.r1 b { color: #B8860B; }
+.bt-badge.rank.r2 { background: #E6E9EE; } .bt-badge.rank.r3 { background: #F3D9C4; }
+@keyframes rankIn { from { transform: scale(0) rotate(-30deg); } }
+.bt-badge.wait { flex-direction: row; display: flex; gap: 8px; width: auto; height: 20px; }
+.bt-badge.wait i { width: 10px; height: 10px; border-radius: 50%; background: var(--ac); animation: dots 1.2s ease-in-out infinite; }
+.bt-badge.wait i:nth-child(2) { animation-delay: .15s; } .bt-badge.wait i:nth-child(3) { animation-delay: .3s; }
+@keyframes dots { 0%, 80%, 100% { transform: scale(.6); opacity: .4; } 40% { transform: scale(1); opacity: 1; } }
+.bt-wait.still, .bt-badge.still, .bt-badge.still * { animation: none !important; stroke-dashoffset: 0 !important; }
+.bt-choice.picked { animation: okPop .4s ease; box-shadow: 0 0 0 3px var(--ink); }
+.verdict.sent-pop { animation: moIn .4s cubic-bezier(.2,1.4,.4,1) both; }
+.bt-timer .bar.hurry i { background: var(--bad) !important; animation: hurryBar .5s ease-in-out infinite alternate; }
+@keyframes hurryBar { to { opacity: .55; } }
+#tt.hurry { color: var(--bad); animation: okPop .5s ease infinite; }
+@media (prefers-reduced-motion: reduce) { .learn-body.stage-in, .mo-in, .steps i.pop, .steps i.now::after, .w.just, .tile.just, .board.solved .tile, .score-rows.grow b, .bt-badge, .bt-badge * { animation: none !important; } .done-hero .star.on { transform: none; } .bt-badge circle, .bt-badge path { stroke-dashoffset: 0; } }

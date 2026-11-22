@@ -6,6 +6,7 @@ import {
   MODES, resolveMode, applyMode, clubOf, clubName, GRADES, newCode
 } from './core.js';
 import { Sound } from './sound.js';
+import * as M from './motion.js';
 import { lambSVG, callName, starsOf, starsHTML, stickerSVG, stickerName, STICKER_COUNT, PLACES, PLACE_SIZE, placeOf, badgeSVG, levelOf, exploreTitle, challengeTitle, confetti, decoSVG, PLAY_DECO, EXPLORE_DECO, UNIT_COLORS, sceneSVG } from './kids.js';
 
 const root = $('#root');
@@ -540,7 +541,7 @@ async function viewLearn(vid, focus = false) {
   const ws = words(v.text);
   const pool = (S.verses[v.courseId] || []).flatMap((x) => words(x.text));
   const prevWeak = ((S.prog.v[v.id] || {}).weak) || [];
-  let si = 0; const sc = {}; const weak = new Set();
+  let si = 0; const sc = {}; const weak = new Set(); let lastSi = -1; let combo = 0;
 
   const frame = (body, foot) => {
     const k = stages[si];
@@ -550,17 +551,28 @@ async function viewLearn(vid, focus = false) {
         <div class="lt-left"><button class="icon-btn" id="xq" aria-label="학습 닫기">${icon('close', 20)}</button>${si > 0 ? `<button class="icon-btn" id="bk" aria-label="이전 단계로">${icon('back', 20)}</button>` : ''}</div>
         <div class="steps">${stages.map((s, i) => `<i class="${i < si ? 'done' : i === si ? 'now' : ''}"></i>`).join('')}</div>
         <span class="head num" style="font-size:13px;text-align:right">${si + 1}/${stages.length}</span></header>
-      <div class="learn-body fade-in"><div class="lb-head"><span class="eyebrow ac">${focus ? '약한 부분 다시 · ' : `${si + 1}단계 · `}${STAGE_NAME[k]}</span>${Object.keys(sc).length ? `<span class="eyebrow num">지금까지 ${finalScore(sc)}점</span>` : ''}</div><h1 class="head">${esc(v.ref)}</h1>${body}</div>
+      <div class="learn-body ${si !== lastSi ? 'stage-in' : ''}"><div class="lb-head"><span class="eyebrow ac">${focus ? '약한 부분 다시 · ' : `${si + 1}단계 · `}${STAGE_NAME[k]}</span>${Object.keys(sc).length ? `<span class="eyebrow num">지금까지 ${finalScore(sc)}점</span>` : ''}</div><h1 class="head">${esc(v.ref)}</h1>${body}</div>
       <footer class="learn-foot ${foot.one ? 'one' : ''}">${foot.html}</footer></div>`;
+    if (si !== lastSi) { M.stagger('.board .w, .read-verse .rw, .pool .tile'); const st = $$('.steps i')[si - 1]; if (st && si > lastSi) st.classList.add('pop'); }
+    M.stagger('.choices .choice', document, 60);
+    lastSi = si;
     $('#xq').onclick = async () => { if (si === 0 || (await confirmLeave())) go('#home'); };
     const bk = $('#bk'); if (bk) bk.onclick = () => { si--; delete sc[stages[si]]; runStage(); };
   };
-  const done = (k, score) => { sc[k] = Math.max(0, Math.min(100, Math.round(score))); si++; if (si >= stages.length) finish(); else runStage(); };
+  const done = (k, score) => {
+    sc[k] = Math.max(0, Math.min(100, Math.round(score))); si++;
+    if (si >= stages.length) return finish();
+    if (k !== 'read') M.cheer(kid() ? (sc[k] >= 90 ? '최고야!' : sc[k] >= 70 ? '잘했어!' : '끝까지 했어!') : `${STAGE_NAME[k]} 완료`, `${sc[k]}점`);
+    runStage();
+  };
+  // 맞힌 자리 반짝 + 연속 정답
+  const hit = (el) => { combo++; M.sparkle(el); if (combo >= 3) M.floatUp(el, `${combo}연속!`, 'combo'); };
+  const miss_ = () => { combo = 0; };
 
   function runStage() {
     const k = stages[si];
     if (k === 'read') {
-      frame(`<p class="hint">소리 내어 천천히 읽어 보세요.</p><p class="read-verse">${esc(v.text)}</p>
+      frame(`<p class="hint">소리 내어 천천히 읽어 보세요.</p><p class="read-verse">${ws.map((w) => `<span class="rw">${esc(w)}</span>`).join(' ')}</p>
         <button class="btn md tts" id="tts">${icon('sound', 18)}들려주기</button>`, { one: true, html: `<button class="btn pr" id="ok">다 읽었어요</button>` });
       $('#tts').onclick = () => speak(v.text, S.settings.ttsRate);
       $('#ok').onclick = () => done('read', 100);
@@ -568,19 +580,23 @@ async function viewLearn(vid, focus = false) {
     if (k === 'order') {
       const chunks = chunkWords(ws); let order = shuffle(chunks.map((c, i) => i));
       if (chunks.length > 1 && order.every((x, i) => x === i)) order = order.reverse();
-      const placed = []; let tries = 0;
+      const placed = []; let tries = 0; let justPlaced = false;
       const draw = () => {
         frame(`<p class="hint">말씀 조각을 순서대로 눌러 보세요. 놓은 조각을 누르면 되돌아갑니다.</p>
-          <div class="board" id="bd">${placed.map((i, j) => `<button class="tile placed" data-j="${j}">${esc(chunks[i])}</button>`).join('') || '<span class="muted small">여기에 순서대로 놓입니다</span>'}</div>
+          <div class="board" id="bd">${placed.map((i, j) => `<button class="tile placed ${j === placed.length - 1 && justPlaced ? 'just' : ''}" data-j="${j}">${esc(chunks[i])}</button>`).join('') || '<span class="muted small">여기에 순서대로 놓입니다</span>'}</div>
           <div class="pool">${order.map((i) => `<button class="tile ${placed.includes(i) ? 'used' : ''}" data-i="${i}">${esc(chunks[i])}</button>`).join('')}</div>`,
         { html: `<button class="btn" id="rs">다시 놓기</button><button class="btn pr" id="ck" ${placed.length < chunks.length ? 'disabled' : ''}>확인</button>` });
-        $$('.pool .tile').forEach((b) => b.onclick = () => { placed.push(+b.dataset.i); draw(); });
+        justPlaced = false;
+        $$('.pool .tile').forEach((b) => b.onclick = () => { placed.push(+b.dataset.i); justPlaced = true; draw(); justPlaced = false; });
         $$('#bd .tile').forEach((b) => b.onclick = () => { placed.splice(+b.dataset.j, 1); draw(); });
         $('#rs').onclick = () => { placed.length = 0; draw(); };
         $('#ck').onclick = () => {
           tries++;
-          if (placed.every((x, j) => x === j)) { fx('correct'); toast(kid() ? (tries === 1 ? '한 번에 맞혔어!' : '잘했어!') : tries === 1 ? '한 번에 맞히셨어요' : '잘하셨어요'); done('order', Math.max(40, 100 - 30 * (tries - 1))); }
-          else { fx('wrong'); $('#bd').classList.add('shake'); toast(kid() ? '순서를 다시 볼까?' : '순서를 다시 확인해 보세요'); setTimeout(() => { placed.length = 0; draw(); }, 700); }
+          if (placed.every((x, j) => x === j)) {
+            fx('correct'); $('#bd').classList.add('solved'); M.sparkle($('#bd'), kid() ? 40 : 20); $('#ck').disabled = true;
+            setTimeout(() => done('order', Math.max(40, 100 - 30 * (tries - 1))), 750);
+          }
+          else { fx('wrong'); $('#bd').classList.add('shake', 'wrongfl'); toast(kid() ? '순서를 다시 볼까?' : '순서를 다시 확인해 보세요'); setTimeout(() => { placed.length = 0; draw(); }, 700); }
         };
       };
       draw();
@@ -588,18 +604,18 @@ async function viewLearn(vid, focus = false) {
     if (k === 'blank') {
       const ratio = focus ? 0.3 : (S.prog.v[v.id] ? 0.5 : 0.25);
       const blanks = pickBlanks(ws, ratio, focus || S.prog.v[v.id] ? prevWeak : []);
-      let bi = 0; const got = {}; let miss = 0;
+      let bi = 0; const got = {}; let miss = 0; let just = -1;
       const draw = (msg = '') => {
         const cur = blanks[bi];
-        const board = ws.map((w, i) => blanks.includes(i) ? (got[i] != null ? `<span class="w blank filled">${esc(w)}</span>` : `<span class="w blank ${i === cur ? 'cur' : ''}">${esc(w)}</span>`) : `<span class="w">${esc(w)}</span>`).join('');
-        const after = (ok) => { got[cur] = ok ? (miss === 0 ? 1 : 0.5) : 0; if (got[cur] < 1) weak.add(cur); miss = 0; bi++; bi >= blanks.length ? done('blank', (Object.values(got).reduce((a, b) => a + b, 0) / blanks.length) * 100) : draw(); };
+        const board = ws.map((w, i) => blanks.includes(i) ? (got[i] != null ? `<span class="w blank filled ${i === just ? 'just' : ''}">${esc(w)}</span>` : `<span class="w blank ${i === cur ? 'cur' : ''}">${esc(w)}</span>`) : `<span class="w">${esc(w)}</span>`).join('');
+        const after = (ok) => { got[cur] = ok ? (miss === 0 ? 1 : 0.5) : 0; if (got[cur] < 1) weak.add(cur); miss = 0; just = cur; bi++; bi >= blanks.length ? done('blank', (Object.values(got).reduce((a, b) => a + b, 0) / blanks.length) * 100) : draw(); };
         if (easy()) {
           const opts = shuffle([norm(ws[cur]), ...distractors(ws[cur], pool)]);
           frame(`<p class="hint">빈칸에 들어갈 말을 골라 보세요. <span class="num">(${bi + 1}/${blanks.length})</span></p><div class="board">${board}</div>
             <div class="choices">${opts.map((o) => `<button class="choice" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div>`, { one: true, html: `<span class="muted small" style="text-align:center">${msg || '&nbsp;'}</span>` });
           $$('.choice').forEach((b) => b.onclick = () => {
-            if (b.dataset.o === norm(ws[cur])) { fx('correct'); b.classList.add('ok'); setTimeout(() => after(true), 350); }
-            else { fx('wrong'); miss++; b.classList.add('no'); b.disabled = true; }
+            if (b.dataset.o === norm(ws[cur])) { fx('correct'); b.classList.add('ok'); if (!miss) hit(b); else miss_(); $$('.choice').forEach((x) => x !== b && x.classList.add('fade')); setTimeout(() => after(true), 420); }
+            else { fx('wrong'); miss_(); miss++; b.classList.add('no'); b.disabled = true; }
           });
         } else {
           frame(`<p class="hint">빈칸에 들어갈 말을 적어 보세요. <span class="num">(${bi + 1}/${blanks.length})</span></p><div class="board">${board}</div>
@@ -609,8 +625,8 @@ async function viewLearn(vid, focus = false) {
           { html: `<button class="btn" id="hint">힌트</button><button class="btn pr" id="ck">확인</button>` });
           const inp = $('#bi'); inp.focus();
           const check = () => {
-            if (gradeWord(inp.value, ws[cur], rule)) after(true);
-            else { miss++; if (miss >= 3) { toast(`정답: ${ws[cur]}`); after(false); return; } inp.parentElement.classList.add('shake'); setTimeout(() => inp.parentElement.classList.remove('shake'), 500); $('#vm').textContent = '다시 한 번 해 보세요'; }
+            if (gradeWord(inp.value, ws[cur], rule)) { const li = inp.parentElement; li.classList.add('okfl'); if (!miss) hit(li); else miss_(); setTimeout(() => after(true), 260); }
+            else { miss_(); miss++; if (miss >= 3) { toast(`정답: ${ws[cur]}`); after(false); return; } inp.parentElement.classList.add('shake'); setTimeout(() => inp.parentElement.classList.remove('shake'), 500); $('#vm').textContent = '다시 한 번 해 보세요'; }
           };
           $('#ck').onclick = check; inp.onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) check(); };
           $('#hint').onclick = () => { miss = Math.max(miss, 1); $('#vm').textContent = `초성: ${chosung(ws[cur])}`; $('#vm').className = 'verdict'; };
@@ -621,7 +637,7 @@ async function viewLearn(vid, focus = false) {
     if (k === 'chosung') {
       let wi = 0; let miss = 0; const got = [];
       const draw = (msg = '') => {
-        const board = ws.map((w, i) => i < wi ? `<span class="w ${got[i] < 1 ? 'bad' : ''}">${esc(w)}</span>` : i === wi ? `<span class="w cho cur">${esc(chosung(w))}</span>` : `<span class="w cho">${esc(chosung(w))}</span>`).join('');
+        const board = ws.map((w, i) => i < wi ? `<span class="w ${got[i] < 1 ? 'bad' : ''} ${i === wi - 1 ? 'just' : ''}">${esc(w)}</span>` : i === wi ? `<span class="w cho cur">${esc(chosung(w))}</span>` : `<span class="w cho">${esc(chosung(w))}</span>`).join('');
         frame(`<p class="hint">초성을 보고 다음 단어를 적어 보세요.</p><div class="board">${board}</div>
           <label class="eyebrow" for="ci" style="margin-top:24px">다음 단어</label>
           <div class="line-input" style="margin-top:10px"><input id="ci" autocomplete="off" autocapitalize="off" spellcheck="false"><span class="eyebrow ac" style="letter-spacing:.08em">${esc(chosung(ws[wi]))}</span></div>
@@ -631,8 +647,8 @@ async function viewLearn(vid, focus = false) {
         const inp = $('#ci'); inp.focus();
         const adv = (pts) => { got[wi] = pts; if (pts < 1) weak.add(wi); wi++; miss = 0; wi >= ws.length ? done('chosung', (got.reduce((a, b) => a + b, 0) / ws.length) * 100) : draw(); };
         const check = () => {
-          if (gradeWord(inp.value, ws[wi], rule)) adv(miss === 0 ? 1 : 0.5);
-          else { miss++; if (miss >= 2) { toast(`정답: ${ws[wi]}`); adv(0); } else { inp.parentElement.classList.add('shake'); setTimeout(() => inp.parentElement.classList.remove('shake'), 500); $('#vm').textContent = '한 번 더 생각해 보세요'; } }
+          if (gradeWord(inp.value, ws[wi], rule)) { const li = inp.parentElement; li.classList.add('okfl'); if (!miss) hit(li); else miss_(); setTimeout(() => adv(miss === 0 ? 1 : 0.5), 200); }
+          else { miss_(); miss++; if (miss >= 2) { toast(`정답: ${ws[wi]}`); adv(0); } else { inp.parentElement.classList.add('shake'); setTimeout(() => inp.parentElement.classList.remove('shake'), 500); $('#vm').textContent = '한 번 더 생각해 보세요'; } }
         };
         $('#ck').onclick = check; inp.onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) check(); };
         $('#hint').onclick = () => { toast(`정답: ${ws[wi]}`); adv(0); };
@@ -652,7 +668,7 @@ async function viewLearn(vid, focus = false) {
         const ans = $('#fa').value; const r = gradeText(ans, v.text, rule); const pts = r.ok ? Math.max(Math.round(r.acc * 100), 95) : Math.round(r.acc * 100);
         if (pts >= best) { best = pts; lastAns = ans; }
         $('#fr').innerHTML = `<p class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? icon('check', 20) + `잘 새기셨습니다 · ${pts}점` : `${pts}점 · 빨간 글자를 확인해 보세요`}</p><div class="result-box">${diffHTML(ans, v.text)}</div>`;
-        if (r.ok) { $('#ck').textContent = '다음'; $('#ck').onclick = leave; $('#skip').classList.add('hidden'); $('.learn-foot').classList.add('one'); }
+        if (r.ok) { M.sparkle($('#fr .verdict'), kid() ? 40 : 22); fx('correct'); $('#ck').textContent = '다음'; $('#ck').onclick = leave; $('#skip').classList.add('hidden'); $('.learn-foot').classList.add('one'); }
         else { $('#ck').textContent = '다시 쓰기'; $('#ck').onclick = () => { $('#fa').value = ''; $('#fr').innerHTML = ''; $('#ck').textContent = '채점하기'; $('#ck').onclick = null; runStage(); }; $('#skip').textContent = '이 점수로 넘어가기'; }
       };
     }
@@ -676,8 +692,8 @@ async function viewLearn(vid, focus = false) {
     const rows = stages.map((k) => `<div class="score-row"><span>${STAGE_NAME[k]}</span><i><b style="width:${sc[k] ?? 0}%"></b></i><span class="num">${sc[k] ?? 0}</span></div>`).join('');
     root.innerHTML = `<div class="learn"><div class="done-hero fade-in">
       <span class="eyebrow ac">${focus ? '약한 부분 다시' : first ? '새로 새긴 말씀' : '다시 새긴 말씀'} · ${esc(v.ref)}</span>
-      <div class="score-big"><span class="num">${total}</span><em>점</em><span class="grade">${GRADE(total)}</span></div>
-      <div class="score-rows">${rows}</div>
+      <div class="score-big"><span class="num" id="sb">${total}</span><em>점</em><span class="grade">${GRADE(total)}</span></div>
+      <div class="score-rows grow">${rows}</div>
       ${weakArr.length ? `<div class="weak-box"><span class="eyebrow">다시 볼 단어 · 내일 복습에 나옵니다</span><div class="weak-words">${weakArr.map((i) => `<span>${esc(ws[i])}</span>`).join('')}</div></div>` : `<p class="verdict ok" style="margin:0">${icon('check', 20)}틀린 곳 없이 새기셨습니다</p>`}
       <p class="xp num">+${xp} 은혜 점수 <span class="muted" style="font-family:var(--f-ui);font-size:14px;font-weight:500">· ${currentStreak()}일 연속</span></p>
       <div class="field"><label for="nt">이 말씀이 나에게 하는 한 줄</label><textarea class="input verse" id="nt" style="min-height:88px" placeholder="떠오르는 마음을 적어 두세요 (선택)">${esc(S.prog.notes[v.id] || '')}</textarea></div>
@@ -686,6 +702,7 @@ async function viewLearn(vid, focus = false) {
       ${weakArr.length ? `<button class="btn" id="again">약한 부분 다시</button>` : ''}
       <button class="btn pr" id="sv">${nextVerse() ? '다음 말씀' : '저장하기'}</button></footer></div>`;
     const saveNote = async () => { const t = $('#nt').value.trim(); if (t && t !== S.prog.notes[v.id]) { S.prog.notes[v.id] = t; await saveProg({ notes: { [v.id]: t } }); } };
+    M.countUp($('#sb'), total, 1000); setTimeout(() => { if (total >= 80) { M.sparkle($('#sb'), 24); fx('fanfare'); } }, 1000);
     $('#hm').onclick = async () => { await saveNote(); go('#home'); };
     const ag = $('#again'); if (ag) ag.onclick = async () => { await saveNote(); viewLearn(v.id, true); };
     $('#sv').onclick = async () => { await saveNote(); const n = nextVerse(); go(n ? '#learn/' + n.id : '#home'); };
@@ -710,12 +727,12 @@ function finishKid({ v, total, xp, lvBefore, first, weakArr, sc, stages, ws, foc
   const rows = stages.map((k) => `<div class="score-row"><span>${STAGE_NAME[k]}</span><i><b style="width:${sc[k] ?? 0}%"></b></i><span class="num">${sc[k] ?? 0}</span></div>`).join('');
   const head = play
     ? `<div class="kid-hero">${lambSVG(110, nStar === 3 ? 'cheer' : nStar === 2 ? 'happy' : 'think')}<div class="kh-r">${starsHTML(nStar, 44)}<b class="head">${nStar === 3 ? '최고야! 완벽해!' : nStar === 2 ? '정말 잘했어!' : '끝까지 해냈어!'}</b><span class="muted num">${total}점</span></div></div>`
-    : `<div class="score-big"><span class="num">${total}</span><em>점</em><span class="grade">${starsHTML(nStar, 22)}</span></div>`;
+    : `<div class="score-big"><span class="num" id="sb">${total}</span><em>점</em><span class="grade">${starsHTML(nStar, 22)}</span></div>`;
   const weakHTML = weakArr.length ? `<div class="weak-box"><span class="eyebrow">${play ? '다음에 또 볼 말' : '다시 볼 단어 · 내일 복습에 나와요'}</span><div class="weak-words">${weakArr.map((i) => `<span>${esc(ws[i])}</span>`).join('')}</div></div>` : '';
   root.innerHTML = `<div class="learn"><div class="done-hero fade-in">
     <span class="eyebrow ac">${focus ? '약한 부분 다시' : first ? (play ? '새로 새긴 말씀' : 'MISSION CLEAR') : '다시 새긴 말씀'} · ${esc(v.ref)}</span>
     ${head}${reward}
-    ${play ? '' : `<div class="score-rows">${rows}</div>`}
+    ${play ? '' : `<div class="score-rows grow">${rows}</div>`}
     ${weakHTML}
     <p class="xp num">+${xp} ${play ? '은혜 점수' : 'XP'} <span class="muted" style="font-family:var(--f-ui);font-size:14px;font-weight:500">· ${currentStreak()}일 연속</span></p>
     ${S.mode === 'challenge' ? `<div class="field"><label for="nt">이 말씀이 나에게 하는 한 줄</label><textarea class="input verse" id="nt" style="min-height:88px" placeholder="떠오르는 생각을 적어 두세요 (선택)">${esc(S.prog.notes[v.id] || '')}</textarea></div>` : ''}
@@ -723,7 +740,9 @@ function finishKid({ v, total, xp, lvBefore, first, weakArr, sc, stages, ws, foc
     <button class="btn" id="hm">홈으로</button>
     ${weakArr.length ? `<button class="btn" id="again">${play ? '한 번 더' : '약한 부분 다시'}</button>` : ''}
     <button class="btn pr" id="sv">${nextVerse() ? (play ? '다음 말씀' : '다음 미션') : '마치기'}</button></footer></div>`;
-  if (first || nStar === 3 || up) { confetti(); fx('fanfare'); } else fx('correct');
+  M.countUp($('#sb'), total, 1000);
+  $$('.kid-hero .star.on, .score-big .star.on').forEach((st, i) => setTimeout(() => { st.classList.add('pop'); fx('correct'); }, 500 + i * 380));
+  if (first || nStar === 3 || up) { setTimeout(() => { confetti(); fx('fanfare'); }, 500 + nStar * 380); }
   const saveNote = async () => { const el = $('#nt'); if (!el) return; const t = el.value.trim(); if (t && t !== S.prog.notes[v.id]) { S.prog.notes[v.id] = t; await saveProg({ notes: { [v.id]: t } }); } };
   $('#hm').onclick = async () => { await saveNote(); go('#home'); };
   const ag = $('#again'); if (ag) ag.onclick = async () => { await saveNote(); viewLearn(v.id, true); };
@@ -777,6 +796,7 @@ async function runReview(all) {
       if (!ok) item.due = addDays(today(), 1);
       S.prog.v[v.id] = item; results.push({ v, score });
       await saveProg({ v: { [v.id]: item } });
+      if (i + 1 < all.length) M.cheer(score >= WEAK_LINE ? (kid() ? '잘 기억했어!' : '잘 기억하셨어요') : (kid() ? '내일 또 보자!' : '내일 다시 나와요'), `${score}점`);
       i++; step();
     };
     if (easy()) {
@@ -784,18 +804,19 @@ async function runReview(all) {
       const blanks = pickBlanks(ws, 0.35, prev.weak || []); let bi = 0; const got = {}; let miss = 0;
       const draw = () => {
         const cur = blanks[bi];
-        root.innerHTML = `<div class="learn">${head}<div class="learn-body fade-in"><div class="lb-head"><span class="eyebrow ac">복습 · ${esc(v.topic || '')}</span>${prev.score != null ? `<span class="eyebrow num">지난번 ${prev.score}점</span>` : ''}</div><h1 class="head">${esc(v.ref)}</h1>
+        root.innerHTML = `<div class="learn">${head}<div class="learn-body ${bi === 0 ? 'stage-in' : ''}"><div class="lb-head"><span class="eyebrow ac">복습 · ${esc(v.topic || '')}</span>${prev.score != null ? `<span class="eyebrow num">지난번 ${prev.score}점</span>` : ''}</div><h1 class="head">${esc(v.ref)}</h1>
           <div class="board">${ws.map((w, k) => blanks.includes(k) ? `<span class="w blank ${got[k] != null ? 'filled' : k === cur ? 'cur' : ''}">${esc(w)}</span>` : `<span class="w">${esc(w)}</span>`).join('')}</div>
           <div class="choices">${shuffle([norm(ws[cur]), ...distractors(ws[cur], pool)]).map((o) => `<button class="choice" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div></div></div>`;
         bind();
         $$('.choice').forEach((b) => b.onclick = () => {
-          if (b.dataset.o === norm(ws[cur])) { b.classList.add('ok'); got[cur] = miss ? 0.5 : 1; miss = 0; setTimeout(() => { bi++; if (bi >= blanks.length) { const sc = Math.round((Object.values(got).reduce((a, x) => a + x, 0) / blanks.length) * 100); record(sc, blanks.filter((k) => got[k] < 1)); } else draw(); }, 300); }
-          else { miss++; b.classList.add('no'); b.disabled = true; }
+          if (b.dataset.o === norm(ws[cur])) { b.classList.add('ok'); if (!miss) M.sparkle(b); fx('correct'); $$('.choice').forEach((x) => x !== b && x.classList.add('fade')); got[cur] = miss ? 0.5 : 1; miss = 0; setTimeout(() => { bi++; if (bi >= blanks.length) { const sc = Math.round((Object.values(got).reduce((a, x) => a + x, 0) / blanks.length) * 100); record(sc, blanks.filter((k) => got[k] < 1)); } else draw(); }, 300); }
+          else { fx('wrong'); miss++; b.classList.add('no'); b.disabled = true; }
         });
+        M.stagger('.choices .choice', document, 60);
       };
       draw();
     } else {
-      root.innerHTML = `<div class="learn">${head}<div class="learn-body fade-in"><div class="lb-head"><span class="eyebrow ac">복습 · ${esc(v.topic || '')}</span>${prev.score != null ? `<span class="eyebrow num">지난번 ${prev.score}점</span>` : ''}</div><h1 class="head">${esc(v.ref)}</h1>
+      root.innerHTML = `<div class="learn">${head}<div class="learn-body stage-in"><div class="lb-head"><span class="eyebrow ac">복습 · ${esc(v.topic || '')}</span>${prev.score != null ? `<span class="eyebrow num">지난번 ${prev.score}점</span>` : ''}</div><h1 class="head">${esc(v.ref)}</h1>
         <p class="hint">기억나는 대로 말씀을 적어 보세요.${(prev.weak || []).length ? ` 지난번에 <b style="color:var(--ac)">${(prev.weak || []).length}단어</b>가 약했어요.` : ''}</p>
         <textarea class="input verse" id="fa" style="margin-top:20px;font-size:calc(19px * var(--k))" spellcheck="false"></textarea><div id="fr"></div></div>
         <footer class="learn-foot"><button class="btn" id="hint">첫머리 보기</button><button class="btn pr" id="ck">채점하기</button></footer></div>`;
@@ -805,6 +826,7 @@ async function runReview(all) {
       $('#ck').onclick = () => {
         const ans = $('#fa').value; const r = gradeText(ans, v.text, rule);
         const score = Math.max(0, (r.ok ? Math.max(95, Math.round(r.acc * 100)) : Math.round(r.acc * 100)) - peek * 10);
+        setTimeout(() => { if (score >= WEAK_LINE) { M.sparkle($('#fr .verdict')); fx('correct'); } }, 30);
         $('#fr').innerHTML = `<p class="verdict ${score >= WEAK_LINE ? 'ok' : 'no'}">${score >= WEAK_LINE ? icon('check', 20) + `잘 기억하셨어요 · ${score}점` : `${score}점 · 내일 다시 나옵니다`}</p><div class="result-box">${diffHTML(ans, v.text)}</div>`;
         $('#ck').textContent = '다음'; $('#ck').onclick = () => record(score, missedWords(ans, v.text)); $('#hint').disabled = true;
       };
@@ -815,9 +837,10 @@ async function runReview(all) {
     const xp = Math.max(5, Math.round(avg / 5) + results.length * 2);
     await touchDay(xp);
     root.innerHTML = `<div class="learn"><div class="done-hero fade-in"><span class="eyebrow ac">복습 완료 · ${results.length}구절</span>
-      <div class="score-big"><span class="num">${avg}</span><em>점</em><span class="grade">${GRADE(avg)}</span></div>
-      <div class="score-rows">${results.map((r) => `<div class="score-row"><span>${esc(r.v.ref)}</span><i><b style="width:${r.score}%"></b></i><span class="num" style="color:${r.score < WEAK_LINE ? 'var(--ac)' : 'inherit'}">${r.score}</span></div>`).join('')}</div>
+      <div class="score-big"><span class="num" id="sb">${avg}</span><em>점</em><span class="grade">${GRADE(avg)}</span></div>
+      <div class="score-rows grow">${results.map((r) => `<div class="score-row"><span>${esc(r.v.ref)}</span><i><b style="width:${r.score}%"></b></i><span class="num" style="color:${r.score < WEAK_LINE ? 'var(--ac)' : 'inherit'}">${r.score}</span></div>`).join('')}</div>
       <p class="xp num">+${xp} 은혜 점수</p></div><footer class="learn-foot one"><button class="btn pr" id="hm">홈으로</button></footer></div>`;
+    M.countUp($('#sb'), avg, 1000); if (avg >= 80) setTimeout(() => { M.sparkle($('#sb'), 24); fx('fanfare'); }, 1000);
     $('#hm').onclick = () => go('#home');
   };
   step();
@@ -994,18 +1017,27 @@ function renderBattle(code, r, me) {
     <div class="r"><span class="eyebrow">${esc(me.name)}${rank ? ` · ${rank}위` : ''}</span><span class="head num" style="font-size:17px;color:var(--ac)">${fmt(myScore)}점</span></div></header>`;
   const leaveTo = () => (S.user ? '#home' : '#battle');
   const bindExit = () => { const b = $('#bx'); if (b) b.onclick = async () => { if (r.status === 'end' || (await confirmExit())) go(leaveTo()); }; };
-  const wait = (big, small, end = false) => {
-    root.innerHTML = `<div class="bt">${header}<div class="bt-body"><div class="bt-wait fade-in"><span class="eyebrow ac">${small}</span><p class="big">${big}</p></div></div>
+  const wait = (big, small, end = false, badge = '') => {
+    root.innerHTML = `<div class="bt">${header}<div class="bt-body"><div class="bt-wait fade-in">${badge}<span class="eyebrow ac">${small}</span><p class="big">${big}</p></div></div>
       ${end ? `<footer class="learn-foot"><a class="btn" href="#battle">다른 대전</a><a class="btn pr" href="${leaveTo()}">${S.user ? '홈으로' : '처음으로'}</a></footer>` : ''}
       <p class="credit" style="padding-bottom:20px">만든 곳 <b>AI목양지원센터</b></p></div>`;
     bindExit();
   };
-  if (r.status === 'lobby') return wait('곧 시작합니다', `${esc(me.name)} 님 입장 완료`);
-  if (r.status === 'end') return wait(rank ? `${rank}위 · ${fmt(myScore)}점` : '대전이 끝났습니다', '수고하셨습니다', true);
+  if (r.status === 'lobby') return wait('곧 시작합니다', `${esc(me.name)} 님 입장 완료`, false, '<span class="bt-badge wait"><i></i><i></i><i></i></span>');
+  if (r.status === 'end') {
+    wait(rank ? `${rank}위 · <span id="ms">${fmt(myScore)}</span>점` : '대전이 끝났습니다', '수고하셨습니다', true, rank ? `<span class="bt-badge rank r${Math.min(rank, 4)}"><b class="num">${rank}</b><em>위</em></span>` : '');
+    if (renderBattle._end !== code) { renderBattle._end = code; if (rank && rank <= 3) { setTimeout(() => { M.sparkle($('.bt-badge'), 40); confetti(50); }, 500); if (phoneSound()) Sound.fanfare(); } }
+    return;
+  }
   if (r.status === 'reveal') {
     if (out) return wait('탈락했지만<br>끝까지 응원해 주세요', '노아의 방주 밖');
     if (res && phoneSound() && renderBattle._snd !== code + r.qi) { renderBattle._snd = code + r.qi; if (res.ok) { Sound.correct(); Sound.vibrate([40, 40, 40]); } else { Sound.wrong(); Sound.vibrate(160); } }
-    return wait(res ? (res.ok ? `정답입니다<br><span class="num" style="color:var(--ac)">+${fmt(res.gain)}</span>` : '아쉽지만<br>다음 문제에서') : '답을 보내지 못했어요', '결과');
+    const first = renderBattle._rv !== code + r.qi; renderBattle._rv = code + r.qi;
+    const badge = res ? (res.ok ? '<span class="bt-badge ok"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l7 7 15-16"/></svg></span>' : '<span class="bt-badge no"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M18 18l16 16M34 18 18 34"/></svg></span>') : '';
+    wait(res ? (res.ok ? `정답입니다<br><span class="num" id="gn" style="color:var(--ac)">+${fmt(res.gain)}</span>` : '아쉽지만<br>다음 문제에서') : '답을 보내지 못했어요', '결과', false, badge);
+    if (first && res && res.ok) { const g = $('#gn'); if (g) { const to = res.gain; let t0 = performance.now(); const st = (now) => { const k = Math.min(1, (now - t0) / 800); g.textContent = '+' + fmt(Math.round(to * (1 - Math.pow(1 - k, 3)))); if (k < 1) requestAnimationFrame(st); }; requestAnimationFrame(st); } setTimeout(() => M.sparkle($('.bt-badge'), 30), 350); }
+    if (!first) $$('.bt-badge, .bt-wait').forEach((x) => x.classList.add('still'));
+    return;
   }
   if (r.status !== 'q') return;
   if (out) return wait('탈락했어요<br>TV로 함께 보세요', '서바이벌');
@@ -1017,11 +1049,12 @@ function renderBattle(code, r, me) {
   const timer = `<div class="bt-timer"><div class="bar"><i id="tb" style="width:100%"></i></div><span class="head num" id="tt" style="font-size:14px;text-align:right">${r.time || 20}초</span></div>`;
   const body = (html) => { root.innerHTML = `<div class="bt">${header}${timer}<div class="bt-body fade-in">${html}</div></div>`; bindExit(); };
   const shapes = ['M12 3 22 21H2z', 'M12 2 22 12 12 22 2 12z', 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z', 'M3 3h18v18H3z'];
-  const sent = () => { $$('button,input,textarea', $('.bt-body')).forEach((b) => b.disabled = true); const n = document.createElement('p'); n.className = 'verdict'; n.innerHTML = icon('check', 18) + '보냈습니다 · TV를 봐 주세요'; $('.bt-body').appendChild(n); };
+  const sent = () => { $$('button,input,textarea', $('.bt-body')).forEach((b) => b.disabled = true); const n = document.createElement('p'); n.className = 'verdict sent-pop'; n.innerHTML = icon('check', 18) + '보냈습니다 · TV를 봐 주세요'; $('.bt-body').appendChild(n); };
   if (q.kind === 'choice') {
     body(`<span class="eyebrow ac">${esc(q.prompt)}</span><p class="verse" style="margin:14px 0 0;font-size:calc(20px * var(--k));line-height:1.8">${q.words && q.blankIndex != null ? q.words.map((w, i) => (i === q.blankIndex ? '<span class="bt-blank"></span>' : esc(w))).join(' ') : esc(q.display)}</p>${q.sub ? `<span class="small muted" style="margin-top:10px;font-weight:600">${esc(q.sub)}</span>` : ''}
       <div class="bt-choices">${q.choices.map((c, i) => `<button class="bt-choice c${i} ${q.refChoices ? 'ref' : ''}" data-i="${i}"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff" fill-opacity=".85" aria-hidden="true"><path d="${shapes[i]}"/></svg><span>${esc(c)}</span></button>`).join('')}</div>`);
-    $$('.bt-choice').forEach((b) => b.onclick = async () => { b.classList.add('picked'); await send(+b.dataset.i); sent(); });
+    M.stagger('.bt-choice', document, 80);
+    $$('.bt-choice').forEach((b) => b.onclick = async () => { b.classList.add('picked'); $$('.bt-choice').forEach((x) => x !== b && x.classList.add('fade')); await send(+b.dataset.i); sent(); });
   } else if (q.kind === 'order') {
     const placed = [];
     const draw = () => {
@@ -1054,7 +1087,7 @@ function renderBattle(code, r, me) {
   }
   tickHandle = setInterval(() => {
     const left = Math.max(0, dur - (Date.now() - started)); const tb = $('#tb'); const tt = $('#tt');
-    if (tb) tb.style.width = (left / dur) * 100 + '%'; if (tt) tt.textContent = Math.ceil(left / 1000) + '초';
+    if (tb) { tb.style.width = (left / dur) * 100 + '%'; tb.parentElement.classList.toggle('hurry', left > 0 && left <= 5000); } if (tt) { tt.textContent = Math.ceil(left / 1000) + '초'; tt.classList.toggle('hurry', left > 0 && left <= 5000); }
     if (left <= 0) clearInterval(tickHandle);
   }, 250);
   addCleanup(() => clearInterval(tickHandle));
