@@ -36,7 +36,7 @@ img { max-width: 100%; }
 
 /* 로고 */
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
-.brand-name { font-family: var(--f-head); font-weight: 600; letter-spacing: -.03em; line-height: 1; }
+.brand-name { font-family: var(--f-head); font-weight: 600; letter-spacing: -.03em; line-height: 1; position: relative; top: -0.05em; }
 .brand-sub { font-size: 10px; font-weight: 600; letter-spacing: .32em; color: var(--sub); }
 .mark { flex: none; display: block; }
 
