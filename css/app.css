@@ -199,3 +199,4 @@ html.kb-open .verdict { margin-top: 4px; min-height: 0 !important; }
 html.kb-open .tabs, html.kb-open .credit { display: none; }
 .top .streak .who { font-weight: 600; max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
 .top .streak .sep { width: 1px; height: 14px; background: var(--line); margin: 0 6px; }
+.my-code { font-family: var(--f-head); font-size: 44px; font-weight: 600; letter-spacing: .12em; text-align: center; margin: 14px 0 12px; white-space: nowrap; color: var(--ac); }

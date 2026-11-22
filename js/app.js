@@ -3,7 +3,7 @@ import {
   DB, op, whenAuthed, loadSettings, applySettings, loadLogo, markSVG, icon, esc, $, $$, toast, modal,
   today, addDays, shuffle, fmt, chosung, words, norm, gradeText, gradeWord, diffHTML, scheduleNext,
   BATTLE_MODES, registerSW, MOCK, missedWords, GRADE, WEAK_LINE, applyLook, cachedSettings,
-  MODES, resolveMode, applyMode, clubOf, clubName
+  MODES, resolveMode, applyMode, clubOf, clubName, GRADES, newCode
 } from './core.js';
 import { Sound } from './sound.js';
 import { lambSVG, callName, starsOf, starsHTML, stickerSVG, stickerName, STICKER_COUNT, PLACES, PLACE_SIZE, placeOf, badgeSVG, levelOf, exploreTitle, challengeTitle, confetti } from './kids.js';
@@ -46,6 +46,7 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.in
   registerSW();
   const params = new URLSearchParams(location.search);
   if (params.get('room')) { location.hash = '#battle/' + params.get('room'); history.replaceState(null, '', location.pathname + (MOCK ? location.search.replace(/[?&]room=\d+/, '') : '') + location.hash); }
+  if (params.get('join')) { const id = params.get('join'); history.replaceState(null, '', location.pathname + (MOCK ? '?mock' : '')); return viewJoin(id, saved); }
   const pv = params.get('preview');
   if (pv && ['play', 'explore', 'challenge', 'adult'].includes(pv)) {
     // 관리자가 모드를 미리 보는 화면 (기록은 저장하지 않음)
@@ -56,16 +57,17 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.in
     S.prog.modePick = null; S.prog.xp = S.prog.xp || 130; S.prog.streak = 3; S.prog.lastDay = today();
     const vs = S.verses[S.course] || []; vs.slice(0, 13).forEach((v, i) => { S.prog.v[v.id] = S.prog.v[v.id] || { score: [96, 88, 72, 100, 91, 64, 85, 93, 99, 90, 78, 95, 88][i], due: addDays(today(), 3) }; });
     setMode();
-    window.addEventListener('hashchange', route); route();
+    listenRoute(); route();
     const tag = document.createElement('div'); tag.className = 'preview-tag'; tag.textContent = '미리 보기 · 기록은 저장되지 않습니다'; document.body.appendChild(tag);
     return;
   }
   if (saved) {
     const doc = await DB.get('users/' + saved.code).catch(() => null);
     if (doc && doc.active !== false) { S.user = userFrom(saved.code, doc); await loadUserData(); }
+    else if (doc && doc.pending) return viewWaiting(saved.code, doc);
     else LS.del('user');
   }
-  window.addEventListener('hashchange', route);
+  listenRoute();
   route();
 })();
 
@@ -198,6 +200,77 @@ function viewLogin() {
       go('#home');
     } catch (err) { console.error(err); toast('연결이 원활하지 않습니다'); btn.disabled = false; }
   };
+}
+
+/* ───────── 스스로 가입 ───────── */
+async function viewJoin(id, saved) {
+  listenRoute();
+  const inv = await DB.get('invites/' + id).catch(() => null);
+  if (!inv || inv.on === false) {
+    root.innerHTML = `<main class="login"><div class="login-card fade-in"><div class="login-brand">${markSVG(56)}</div><h1 class="head" style="font-size:28px;margin:0">가입 링크가 닫혀 있어요</h1><p class="muted" style="margin:0;line-height:1.7">선생님께 새 링크를 받아 주세요. 입장 코드가 있으면 아래에서 들어갈 수 있어요.</p><a class="btn pr block" href="#">입장 코드로 들어가기</a>${credit()}</div></main>`;
+    return;
+  }
+  if (saved) {
+    const doc = await DB.get('users/' + saved.code).catch(() => null);
+    if (doc) { location.hash = '#home'; location.reload(); return; }
+  }
+  const kidClub = inv.club && ['puggles', 'cubbies', 'sparks', 'tnt'].includes(inv.club);
+  if (inv.club) applyMode(resolveMode({ club: inv.club }, S.settings));
+  const grades = inv.club ? GRADES.filter((g) => !g.startsWith('청') && !g.startsWith('장')) : GRADES;
+  root.innerHTML = `<main class="login"><div class="login-card fade-in">
+    <div class="login-brand">${kidClub ? lambSVG(80, 'happy') : (S.logo ? `<img src="${S.logo}" alt="" style="height:64px;width:auto">` : markSVG(64))}
+      <div style="display:flex;flex-direction:column;gap:10px"><span class="nm" style="font-size:40px">${kidClub ? '반가워!' : '가입하기'}</span><span class="en">${esc(inv.name || [clubName(inv.club), '새김 INSCRIBE'].filter(Boolean).join(' · '))}</span></div></div>
+    <form id="jf" style="display:flex;flex-direction:column;gap:16px" autocomplete="off">
+      <div class="field"><label for="jn">이름</label><input class="input" id="jn" required maxlength="20" placeholder="홍길동"></div>
+      <div class="field"><label for="jg">학년</label><select class="input" id="jg" required><option value="">골라 주세요</option>${grades.map((g) => `<option>${g}</option>`).join('')}</select></div>
+      <button class="btn pr block" type="submit">${kidClub ? '시작하기' : '가입하고 시작하기'}</button>
+      <a class="btn ghost block" href="#" id="have">이미 입장 코드가 있어요</a>
+    </form>
+    <p class="small muted" style="margin:0;line-height:1.7;text-align:center">${inv.auto ? '가입하면 입장 코드가 바로 만들어지고 이 기기에서 자동으로 들어갑니다.' : '가입하면 선생님이 확인한 뒤 들어갈 수 있어요.'}</p>
+    ${credit()}</div></main>`;
+  $('#have').onclick = (e) => { e.preventDefault(); applyMode('adult'); viewLogin(); };
+  $('#jf').onsubmit = async (e) => {
+    e.preventDefault();
+    const name = $('#jn').value.trim().replace(/\s+/g, ' '); const grade = $('#jg').value;
+    if (!name) return toast('이름을 적어 주세요'); if (!grade) return toast('학년을 골라 주세요');
+    const btn = e.submitter || $('#jf button'); btn.disabled = true;
+    try {
+      let code = null;
+      for (let i = 0; i < 8 && !code; i++) { const c = newCode(); const ex = await DB.get('users/' + c).catch(() => null); if (!ex) code = c; }
+      if (!code) throw new Error('code');
+      const doc = { name, grade, club: inv.club || null, team: inv.team || null, mode: 'auto', active: !!inv.auto, pending: !inv.auto, invite: id, selfJoined: true, createdAt: Date.now() };
+      await DB.set('users/' + code, doc, false);
+      LS.set('user', { code });
+      if (!inv.auto) return viewWaiting(code, doc);
+      S.user = userFrom(code, doc); await loadUserData();
+      showMyCode(code, () => go('#home'));
+    } catch (err) { console.error(err); toast('가입하지 못했습니다. 잠시 뒤 다시 해 주세요'); btn.disabled = false; }
+  };
+}
+function showMyCode(code, then) {
+  modal(`<h3>${kid() ? '내 입장 코드야!' : '입장 코드가 만들어졌어요'}</h3><p class="my-code num">${code.slice(0, 4)} ${code.slice(4)}</p>
+    <p class="muted" style="margin:0;line-height:1.7">이 기기에서는 자동으로 들어갑니다. 다른 기기에서 들어갈 때 이름과 이 코드가 필요해요. <b style="color:var(--ink)">화면을 캡처해 두세요.</b></p>
+    <div class="actions"><button class="btn md" id="cpc">${icon('copy', 16)}복사</button><button class="btn md pr" data-close id="okc">시작하기</button></div>`, {
+    onMount(el, close) { $('#cpc', el).onclick = () => { navigator.clipboard && navigator.clipboard.writeText(code); toast('복사했습니다'); }; $('#okc', el).onclick = () => { close(); then(); }; }
+  });
+}
+function listenRoute() { if (!S.listening) { S.listening = true; window.addEventListener('hashchange', route); } }
+function viewWaiting(code, doc) {
+  listenRoute();
+  root.innerHTML = `<main class="login"><div class="login-card fade-in">
+    <div class="login-brand">${doc.club ? lambSVG(80, 'think') : markSVG(56)}</div>
+    <h1 class="head" style="font-size:28px;margin:0">${esc(doc.name)}${doc.club ? '' : ' 님'}, 가입 신청을 보냈어요</h1>
+    <p class="muted" style="margin:0;line-height:1.7">선생님이 확인하면 바로 들어갈 수 있어요. 입장 코드를 적어 두세요.</p>
+    <p class="my-code num" style="text-align:left">${code.slice(0, 4)} ${code.slice(4)}</p>
+    <button class="btn pr block" id="rf">다시 확인하기</button>
+    <a class="btn ghost block" href="#" id="cancel">처음으로</a>${credit()}</div></main>`;
+  $('#rf').onclick = async () => {
+    const d = await DB.get('users/' + code).catch(() => null);
+    if (d && d.active !== false) { S.user = userFrom(code, d); await loadUserData(); go('#home'); location.hash === '#home' && route(); }
+    else if (!d) { LS.del('user'); toast('가입 신청이 지워졌어요. 선생님께 물어봐 주세요'); viewLogin(); }
+    else toast('아직 확인 중이에요');
+  };
+  $('#cancel').onclick = (e) => { e.preventDefault(); LS.del('user'); viewLogin(); };
 }
 
 /* ───────── 홈 ───────── */

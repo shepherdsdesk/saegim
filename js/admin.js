@@ -4,6 +4,7 @@ import {
   fmt, newCode, today, THEMES, VERSE_FONTS, UI_FONTS, SIZES, STAGES, BATTLE_THEMES, TEAM_COLORS, shrinkImage, DEFAULTS, MOCK,
   CLUBS, MODES, GRADES, gradeToClub, clubOf, clubName
 } from './core.js';
+import { qrcode } from '../vendor/qrcode.mjs';
 
 const root = $('#root');
 const A = { settings: null, courses: [], teams: [], users: [], progress: [] };
@@ -233,17 +234,22 @@ async function users() {
   shell('users', pageHead('사용자와 코드', `사용자 ${A.users.length}명`, `
     <div class="searchbar">${icon('search', 18)}<input id="q" placeholder="이름으로 찾기" aria-label="이름으로 찾기"></div>
     <button class="btn md" id="xl">${icon('down', 16)}코드 목록 받기</button>
+    <button class="btn md" id="inv">${icon('qr', 16)}가입 링크</button>
     <button class="btn md" id="bulk">${icon('users', 16)}여러 명 추가</button>
     <button class="btn md pr" id="add">${icon('plus', 16)}사용자 추가</button>`),
-  `<div class="club-filter" id="cf">${[['', '전체'], ['none', '클럽 없음'], ...CLUBS.map((c) => [c.id, c.name])].map(([k, l]) => `<button class="chip ${k === '' ? 'on' : ''}" data-cf="${k}">${esc(l)} <span class="num">${k === '' ? A.users.length : A.users.filter((u) => (clubOf(u) || 'none') === k).length}</span></button>`).join('')}</div>
+  `${pendingHTML()}<div class="club-filter" id="cf">${[['', '전체'], ['none', '클럽 없음'], ...CLUBS.map((c) => [c.id, c.name])].map(([k, l]) => `<button class="chip ${k === '' ? 'on' : ''}" data-cf="${k}">${esc(l)} <span class="num">${k === '' ? A.users.filter((u) => !u.pending).length : A.users.filter((u) => !u.pending && (clubOf(u) || 'none') === k).length}</span></button>`).join('')}</div>
   <div class="tbl"><div style="min-width:940px"><div class="tr th" style="grid-template-columns:${UCOLS}"><span>이름</span><span>팀</span><span>클럽 · 학년</span><span>화면</span><span>입장 코드</span><span>새긴 말씀</span><span></span></div>
-    <div id="ul">${A.users.map((u) => `<div class="tr" data-name="${esc(u.name)}" data-club="${clubOf(u) || 'none'}" style="grid-template-columns:${UCOLS}">
+    <div id="ul">${A.users.filter((u) => !u.pending).map((u) => `<div class="tr" data-name="${esc(u.name)}" data-club="${clubOf(u) || 'none'}" style="grid-template-columns:${UCOLS}">
       <b class="nowrap">${esc(u.name)}</b><span class="nowrap" style="display:flex;align-items:center;gap:8px"><i class="dot-color" style="background:${tcol(u.team)}"></i>${esc(tname(u.team))}</span>
       <span class="nowrap">${clubOf(u) ? `<b>${esc(clubName(clubOf(u)))}</b>${u.grade ? ` <span class="muted">· ${esc(u.grade)}</span>` : ''}${!u.club && u.grade ? ' <span class="muted small">(학년)</span>' : ''}` : `<span class="muted">${u.grade ? esc(u.grade) : '-'}</span>`}</span>
       <span class="nowrap">${modeTag(u)}</span>
       <span class="code-pill">${esc(u.id)}</span><span class="head num">${Object.keys((pmap[u.id] || {}).v || {}).length}</span>
       <div class="acts"><button class="icon-btn" data-edit="${u.id}" aria-label="고치기">${icon('edit', 18)}</button><button class="icon-btn" data-re="${u.id}" aria-label="코드 다시 발급">${icon('key', 18)}</button><button class="icon-btn" data-del="${u.id}" aria-label="삭제">${icon('trash', 18)}</button></div></div>`).join('') || '<p class="muted" style="padding:24px 0">아직 사용자가 없습니다.</p>'}</div>
   </div></div>`);
+  $('#inv').onclick = () => invites();
+  $$('[data-ok]').forEach((b) => b.onclick = async () => { await DB.set('users/' + b.dataset.ok, { active: true, pending: false }); toast('들어올 수 있게 했습니다'); users(); });
+  $$('[data-no]').forEach((b) => b.onclick = async () => { const u = A.users.find((x) => x.id === b.dataset.no); if (!(await confirmBox('가입 거절', `${esc(u.name)} 님의 가입 신청을 지웁니다.`, '거절', true))) return; await DB.del('users/' + u.id); users(); });
+  $('#okall') && ($('#okall').onclick = async () => { await DB.batch(A.users.filter((u) => u.pending).map((u) => ({ path: 'users/' + u.id, data: { active: true, pending: false } }))); toast('모두 승인했습니다'); users(); });
   let cf = '';
   const filt = () => { const q = $('#q').value.trim(); $$('#ul .tr').forEach((r) => r.classList.toggle('hidden', (!!q && !r.dataset.name.includes(q)) || (!!cf && r.dataset.club !== cf))); };
   $('#q').oninput = filt;
@@ -321,6 +327,60 @@ async function users() {
     const u = A.users.find((x) => x.id === b.dataset.del);
     if (!(await confirmBox('사용자 삭제', `${esc(u.name)} 님과 외운 기록을 지웁니다. 되돌릴 수 없습니다.`, '삭제', true))) return;
     await DB.batch([{ path: 'users/' + u.id, del: true }, { path: 'progress/' + u.id, del: true }]); users();
+  });
+}
+function pendingHTML() {
+  const ps = A.users.filter((u) => u.pending);
+  if (!ps.length) return '';
+  return `<section class="pending"><div class="pd-head"><b>가입 신청 ${ps.length}명</b><span class="small muted">가입 링크로 들어온 사람입니다. 승인하면 바로 들어올 수 있어요.</span>${ps.length > 1 ? '<button class="btn sm pr" id="okall">모두 승인</button>' : ''}</div>
+    ${ps.map((u) => `<div class="pd-row"><b class="nowrap">${esc(u.name)}</b><span class="nowrap muted">${esc([clubName(clubOf(u)), u.grade].filter(Boolean).join(' · ') || '-')}</span><span class="small muted nowrap">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('ko-KR') : ''}</span><div class="acts"><button class="btn sm" data-no="${u.id}">거절</button><button class="btn sm pr" data-ok="${u.id}">승인</button></div></div>`).join('')}</section>`;
+}
+const joinURL = (id) => APP_URL() + '?join=' + id + (MOCK ? '&mock' : '');
+const qrSVG = (t) => { const q = qrcode(0, 'M'); q.addData(t); q.make(); return q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); };
+async function invites() {
+  const list = (await DB.list('invites')).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const label = (v) => [v.club ? clubName(v.club) : '클럽 없음', v.team ? (A.teams.find((t) => t.id === v.team) || {}).name : ''].filter(Boolean).join(' · ');
+  modal(`<h3>가입 링크</h3><p class="muted small" style="margin:0;line-height:1.7">링크나 QR을 단체방에 올리거나 화면에 띄우면, 각자 이름과 학년만 넣고 가입합니다. 입장 코드는 자동으로 만들어지고 그 기기에서 바로 들어갑니다.</p>
+    <div class="inv-list">${list.map((v) => `<div class="inv-row ${v.on === false ? 'off' : ''}"><div class="l"><b>${esc(v.name || label(v))}</b><span class="small muted">${esc(label(v))} · ${v.auto ? '바로 입장' : '승인 후 입장'}${A.users.filter((u) => u.invite === v.id).length ? ` · ${A.users.filter((u) => u.invite === v.id).length}명 가입` : ''}</span></div>
+      <div class="acts"><button class="btn sm" data-show="${v.id}">${icon('qr', 16)}QR</button><button class="switch ${v.on === false ? '' : 'on'}" data-on="${v.id}" aria-label="링크 켜기"></button><button class="icon-btn" data-rm="${v.id}" aria-label="삭제">${icon('trash', 18)}</button></div></div>`).join('') || '<p class="muted small" style="padding:18px 0;margin:0">아직 만든 링크가 없습니다.</p>'}</div>
+    <div class="ufields" style="border-top:1px solid var(--line);padding-top:18px">
+      <b style="font-size:15px">새 링크 만들기</b>
+      <div class="two">
+        <div class="field"><label for="ic">클럽</label><select class="input" id="ic"><option value="">클럽 없음 (어른)</option>${CLUBS.map((c) => `<option value="${c.id}">${esc(c.name)} · ${esc(c.age)}</option>`).join('')}</select></div>
+        <div class="field"><label for="it">팀</label><select class="input" id="it"><option value="">팀 없음</option>${A.teams.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></div>
+      </div>
+      <div class="field"><label for="in">링크 이름 (선택)</label><input class="input" id="in" placeholder="예) 2027 스팍스 봄학기"></div>
+      <div class="field"><label>들어오는 방식</label><div class="seg" id="ia"><button type="button" data-v="1" class="on">바로 입장</button><button type="button" data-v="0">승인 후 입장</button></div></div>
+    </div>
+    <div class="actions"><button class="btn md" data-close>닫기</button><button class="btn md pr" id="mk">링크 만들기</button></div>`, {
+    onMount(el, close) {
+      $$('#ia button', el).forEach((b) => b.onclick = () => $$('#ia button', el).forEach((x) => x.classList.toggle('on', x === b)));
+      $('#mk', el).onclick = async () => {
+        const id = newCode(6);
+        const v = { club: $('#ic', el).value || null, team: $('#it', el).value || null, name: $('#in', el).value.trim() || null, auto: $('#ia .on', el).dataset.v === '1', on: true, createdAt: Date.now() };
+        await DB.set('invites/' + id, v, false); close(); showInvite({ id, ...v }, label);
+      };
+      $$('[data-show]', el).forEach((b) => b.onclick = () => { close(); showInvite(list.find((x) => x.id === b.dataset.show), label); });
+      $$('[data-on]', el).forEach((b) => b.onclick = async () => { const on = !b.classList.contains('on'); await DB.set('invites/' + b.dataset.on, { on }); b.classList.toggle('on', on); b.closest('.inv-row').classList.toggle('off', !on); });
+      $$('[data-rm]', el).forEach((b) => b.onclick = async () => { await DB.del('invites/' + b.dataset.rm); b.closest('.inv-row').remove(); toast('지웠습니다'); });
+    }
+  });
+}
+function showInvite(v, label) {
+  const url = joinURL(v.id); const title = v.name || label(v);
+  modal(`<h3>${esc(title)}</h3><p class="muted small" style="margin:0">${esc(label(v))} · ${v.auto ? '바로 입장' : '승인 후 입장'}</p>
+    <div class="inv-qr">${qrSVG(url)}</div>
+    <p class="inv-url num">${esc(url)}</p>
+    <div class="actions"><button class="btn md" id="bk">목록</button><button class="btn md" id="pr">${icon('down', 16)}인쇄</button><button class="btn md pr" id="cp">${icon('copy', 16)}안내 문구 복사</button></div>`, {
+    onMount(el, close) {
+      $('#bk', el).onclick = () => { close(); invites(); };
+      $('#cp', el).onclick = () => { navigator.clipboard.writeText(`[새김 말씀 암송${v.club ? ' · ' + clubName(v.club) : ''}]\n아래 주소를 눌러 이름과 학년을 넣으면 바로 시작할 수 있어요.\n${url}`); toast('복사했습니다'); };
+      $('#pr', el).onclick = () => {
+        const w = window.open('', '_blank'); if (!w) return toast('팝업이 막혔습니다');
+        w.document.write(`<html><head><title>${esc(title)}</title><style>body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;text-align:center;padding:60px 40px;color:#1A1D24}h1{font-size:44px;margin:0 0 8px}p{font-size:20px;color:#676B74;margin:0}svg{width:360px;height:360px;margin:48px auto 28px;display:block}small{font-size:14px;color:#676B74;word-break:break-all}</style></head><body><h1>말씀 새기러 가요!</h1><p>${esc(title)} · 휴대폰 카메라로 찍어 주세요</p>${qrSVG(url)}<small>${esc(url)}</small><p style="margin-top:40px;font-size:14px">만든 곳 AI목양지원센터</p><script>setTimeout(()=>print(),300)<\/script></body></html>`);
+        w.document.close();
+      };
+    }
   });
 }
 const UCOLS = '1.3fr 1fr 1.2fr 84px 130px 84px 150px';

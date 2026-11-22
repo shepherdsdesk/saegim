@@ -34,9 +34,27 @@ service cloud.firestore {
       allow list: if isAdmin();
     }
 
+    // 가입 링크: 누구나 열어 보고, 관리자만 만듭니다
+    match /invites/{id} {
+      allow get: if signedIn();
+      allow list, write: if isAdmin();
+    }
+    // 가입 링크로 스스로 가입: 링크에 정해진 클럽·팀·입장 방식 그대로만 만들 수 있습니다
+    function inviteDoc(id) { return get(/databases/$(database)/documents/invites/$(id)).data; }
+    function selfJoin() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['name', 'grade', 'club', 'team', 'mode', 'active', 'pending', 'invite', 'selfJoined', 'createdAt'])
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 20
+        && d.invite is string && exists(/databases/$(database)/documents/invites/$(d.invite))
+        && inviteDoc(d.invite).on == true
+        && d.club == inviteDoc(d.invite).club && d.team == inviteDoc(d.invite).team
+        && d.active == inviteDoc(d.invite).auto && d.pending == !inviteDoc(d.invite).auto
+        && d.mode == 'auto' && d.selfJoined == true;
+    }
     match /users/{code} {
       allow get: if signedIn();
       allow list, write: if isAdmin();
+      allow create: if signedIn() && code.size() == 8 && selfJoin();
     }
     match /progress/{code} {
       allow get: if signedIn();
