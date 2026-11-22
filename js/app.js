@@ -106,7 +106,8 @@ function tabbar(on) {
 }
 function streakHTML() {
   const n = currentStreak();
-  return `<div class="streak">${icon('flame', 16)}<span class="num">${n}일 연속</span></div>`;
+  const who = S.user ? `<span class="who">${esc(S.user.name)} 님</span><i class="sep" aria-hidden="true"></i>` : '';
+  return `<div class="streak">${who}${icon('flame', 16)}<span class="num">${n}일 연속</span></div>`;
 }
 function currentStreak() {
   const p = S.prog || {}; if (!p.lastDay) return 0;

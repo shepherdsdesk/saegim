@@ -197,3 +197,5 @@ html.kb-open .learn-foot { position: static; flex: none; padding-top: 8px; paddi
 html.kb-open .learn-foot .btn { height: 46px; }
 html.kb-open .verdict { margin-top: 4px; min-height: 0 !important; }
 html.kb-open .tabs, html.kb-open .credit { display: none; }
+.top .streak .who { font-weight: 600; max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
+.top .streak .sep { width: 1px; height: 14px; background: var(--line); margin: 0 6px; }
