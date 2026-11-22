@@ -2,12 +2,14 @@
 import {
   DB, op, whenAuthed, loadSettings, applySettings, loadLogo, markSVG, icon, esc, $, $$, toast, modal,
   today, addDays, shuffle, fmt, chosung, words, norm, gradeText, gradeWord, diffHTML, scheduleNext,
-  BATTLE_MODES, registerSW, MOCK, missedWords, GRADE, WEAK_LINE, applyLook, cachedSettings
+  BATTLE_MODES, registerSW, MOCK, missedWords, GRADE, WEAK_LINE, applyLook, cachedSettings,
+  MODES, resolveMode, applyMode, clubOf, clubName
 } from './core.js';
 import { Sound } from './sound.js';
+import { lambSVG, callName, starsOf, starsHTML, stickerSVG, stickerName, STICKER_COUNT, PLACES, PLACE_SIZE, placeOf, badgeSVG, levelOf, exploreTitle, challengeTitle, confetti } from './kids.js';
 
 const root = $('#root');
-const S = { settings: null, user: null, prog: null, courses: [], verses: {}, course: null, logo: null, uid: null, installEvt: null };
+const S = { mode: 'adult', settings: null, user: null, prog: null, courses: [], verses: {}, course: null, logo: null, uid: null, installEvt: null };
 const LS = { get: (k) => { try { return JSON.parse(localStorage.getItem('saegim-' + k)); } catch (e) { return null; } }, set: (k, v) => localStorage.setItem('saegim-' + k, JSON.stringify(v)), del: (k) => localStorage.removeItem('saegim-' + k) };
 let cleanup = [];
 const addCleanup = (f) => cleanup.push(f);
@@ -44,28 +46,57 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.in
   registerSW();
   const params = new URLSearchParams(location.search);
   if (params.get('room')) { location.hash = '#battle/' + params.get('room'); history.replaceState(null, '', location.pathname + (MOCK ? location.search.replace(/[?&]room=\d+/, '') : '') + location.hash); }
+  const pv = params.get('preview');
+  if (pv && ['play', 'explore', 'challenge', 'adult'].includes(pv)) {
+    // 관리자가 모드를 미리 보는 화면 (기록은 저장하지 않음)
+    S.preview = true;
+    S.user = { code: 'PREVIEW', name: '새김이', team: null, club: null, grade: null, mode: pv };
+    await loadUserData().catch(() => {});
+    if (!S.prog) { S.prog = { v: {}, notes: {} }; }
+    S.prog.modePick = null; S.prog.xp = S.prog.xp || 130; S.prog.streak = 3; S.prog.lastDay = today();
+    const vs = S.verses[S.course] || []; vs.slice(0, 13).forEach((v, i) => { S.prog.v[v.id] = S.prog.v[v.id] || { score: [96, 88, 72, 100, 91, 64, 85, 93, 99, 90, 78, 95, 88][i], due: addDays(today(), 3) }; });
+    setMode();
+    window.addEventListener('hashchange', route); route();
+    const tag = document.createElement('div'); tag.className = 'preview-tag'; tag.textContent = '미리 보기 · 기록은 저장되지 않습니다'; document.body.appendChild(tag);
+    return;
+  }
   if (saved) {
     const doc = await DB.get('users/' + saved.code).catch(() => null);
-    if (doc && doc.active !== false) { S.user = { code: saved.code, name: doc.name, team: doc.team || null }; await loadUserData(); }
+    if (doc && doc.active !== false) { S.user = userFrom(saved.code, doc); await loadUserData(); }
     else LS.del('user');
   }
   window.addEventListener('hashchange', route);
   route();
 })();
 
+const saveProg = (data) => (S.preview ? Promise.resolve() : DB.set('progress/' + S.user.code, data));
+function userFrom(code, d) { return { code, name: d.name, team: d.team || null, club: d.club || null, grade: d.grade || null, mode: d.mode || 'auto' }; }
+const kid = () => S.mode !== 'adult';
+function setMode() { S.mode = resolveMode(S.user, S.settings, S.prog && S.prog.modePick); applyMode(S.mode); }
+// 클럽이 정해진 코스는 그 클럽 사용자에게만
+function courseFor(c) {
+  if (c.published === false) return false;
+  const cl = c.clubs || []; if (!cl.length) return true;
+  const my = clubOf(S.user); return my ? cl.includes(my) : cl.includes('adult');
+}
+function fx(kind) {
+  if (!kid() || !phoneSound()) return;
+  try { Sound.configure({ sfx: true, bgm: false, volume: 0.6 }); Sound.unlock(); Sound[kind] && Sound[kind](); } catch (e) {}
+}
 async function loadUserData() {
   const [cs, prog, wv] = await Promise.all([
     DB.list('courses'),
     DB.get('progress/' + S.user.code),
     S.settings.weeklyVerse ? DB.get('verses/' + S.settings.weeklyVerse).catch(() => null) : Promise.resolve(null)
   ]);
-  S.courses = cs.filter((c) => c.published !== false).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+  S.courses = cs.filter(courseFor).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
   S.prog = prog || {};
   S.prog.v = S.prog.v || {}; S.prog.notes = S.prog.notes || {};
   const pick = S.prog.course && S.courses.find((c) => c.id === S.prog.course) ? S.prog.course : (S.courses[0] && S.courses[0].id);
   S.course = pick || null;
   if (S.course) await loadVerses(S.course);
   S.weekly = wv;
+  setMode();
 }
 // 말씀은 코스가 바뀌었을 때만 새로 받기 (나머지는 이 기기에 보관)
 async function loadVerses(cid) {
@@ -78,7 +109,7 @@ async function loadVerses(cid) {
   try { localStorage.setItem('saegim-v-' + cid, JSON.stringify({ ver, list: vs })); } catch (e) {}
   return vs;
 }
-const easy = () => (S.prog && S.prog.easy != null ? S.prog.easy : S.settings.easyDefault);
+const easy = () => (S.mode === 'play' ? true : S.prog && S.prog.easy != null ? S.prog.easy : S.settings.easyDefault);
 const courseRule = (cid) => { const c = S.courses.find((x) => x.id === cid); return (c && c.rule) || S.settings.rule; };
 
 function route() {
@@ -86,10 +117,13 @@ function route() {
   const h = location.hash.replace(/^#/, '');
   const [page, arg] = h.split('/');
   if (page === 'battle') return viewBattle(arg);
-  if (!S.user) return viewLogin();
+  if (!S.user) { S.mode = 'adult'; applyMode('adult'); return viewLogin(); }
   if (page === 'learn' && arg) return viewLearn(arg);
   if (page === 'review') return viewReview();
   if (page === 'me') return viewMe();
+  if (S.mode === 'play') return homePlay();
+  if (S.mode === 'explore') return homeExplore();
+  if (S.mode === 'challenge') return homeChallenge();
   return viewHome();
 }
 const go = (h) => { if (location.hash === h) route(); else location.hash = h; };
@@ -101,13 +135,20 @@ function topbar(right = '') {
   return `<header class="top"><a class="brand" href="#home" aria-label="홈">${logo}<span class="brand-name" style="font-size:20px">${esc(name)}</span></a>${right}</header>`;
 }
 function tabbar(on) {
-  const t = [['home', '홈', 'home'], ['review', '복습', 'review'], ['battle', '대전', 'battle'], ['me', '내 기록', 'me']];
+  const L = { play: ['말씀 길', '다시 보기', '대전', '스티커'], explore: ['지도', '복습', '대전', '배지'], challenge: ['홈', '복습', '대전', '기록'] }[S.mode] || ['홈', '복습', '대전', '내 기록'];
+  const t = [['home', L[0], 'home'], ['review', L[1], 'review'], ['battle', L[2], 'battle'], ['me', L[3], 'me']];
   return `<nav class="tabs" aria-label="주 메뉴">${t.map(([h, l, i]) => `<a href="#${h}" class="${on === h ? 'on' : ''}">${icon(i, 22)}${l}</a>`).join('')}</nav>`;
 }
 function streakHTML() {
   const n = currentStreak();
-  const who = S.user ? `<span class="who">${esc(S.user.name)} 님</span><i class="sep" aria-hidden="true"></i>` : '';
+  const nm = S.user ? (kid() ? S.user.name : S.user.name + ' 님') : '';
+  const who = S.user ? `<span class="who">${esc(nm)}</span><i class="sep" aria-hidden="true"></i>` : '';
+  if (S.mode === 'play') return `<div class="streak">${who}${lampSVG(16, n > 0)}<span class="num">등불 ${n}</span></div>`;
+  if (kid()) { const L = levelOf(S.prog.xp || 0); return `<div class="streak">${who}<span class="lv-chip num">Lv.${L.lv}</span>${icon('flame', 16)}<span class="num">${n}일</span></div>`; }
   return `<div class="streak">${who}${icon('flame', 16)}<span class="num">${n}일 연속</span></div>`;
+}
+function lampSVG(size = 16, on = true) {
+  return `<svg class="lamp ${on ? 'on' : ''}" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 20h10M9 20l-1-8c0-3 8-3 8 0l-1 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 3c2 2 2 4 0 6-2-2-2-4 0-6z" fill="${on ? '#FFB020' : 'none'}" stroke="${on ? '#FFB020' : 'currentColor'}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
 }
 function currentStreak() {
   const p = S.prog || {}; if (!p.lastDay) return 0;
@@ -119,7 +160,9 @@ async function touchDay(xp = 0) {
   let streak = p.streak || 0;
   if (p.lastDay !== t) streak = p.lastDay === addDays(t, -1) ? streak + 1 : 1;
   p.streak = streak; p.lastDay = t; p.xp = (p.xp || 0) + xp;
-  await DB.set('progress/' + S.user.code, { streak, lastDay: t, xp: op.inc(xp), name: S.user.name, team: S.user.team || null, updatedAt: Date.now() });
+  await saveProg({ streak, lastDay: t, xp: op.inc(xp), name: S.user.name, team: S.user.team || null, club: clubOf(S.user), updatedAt: Date.now() });
+  const club = clubOf(S.user);
+  if (club && !S.preview) DB.set('boards/' + club, { [S.user.code]: { n: S.user.name, xp: p.xp } }).catch(() => {});
 }
 const credit = () => `<p class="credit">만든 곳 <b>AI목양지원센터</b></p>`;
 
@@ -150,7 +193,7 @@ function viewLogin() {
       if (!d || d.active === false) { toast('코드를 다시 확인해 주세요'); btn.disabled = false; return; }
       if (norm(d.name) !== norm(name)) { toast('이름과 코드가 맞지 않습니다'); btn.disabled = false; return; }
       LS.set('user', { code });
-      S.user = { code, name: d.name, team: d.team || null };
+      S.user = userFrom(code, d);
       await loadUserData();
       go('#home');
     } catch (err) { console.error(err); toast('연결이 원활하지 않습니다'); btn.disabled = false; }
@@ -218,9 +261,139 @@ async function viewHome() {
 
   $$('.chip[data-c]').forEach((b) => b.onclick = async () => {
     S.course = b.dataset.c; await loadVerses(S.course);
-    DB.set('progress/' + S.user.code, { course: S.course }); S.prog.course = S.course; viewHome();
+    saveProg({ course: S.course }); S.prog.course = S.course; viewHome();
   });
   const nowRow = $('.topic-row.now'); if (nowRow && nextIdx > 4) setTimeout(() => nowRow.scrollIntoView({ block: 'center' }), 50);
+}
+
+/* ───────── 놀이 · 탐험 · 도전 홈 ───────── */
+function homeData() {
+  const vs = S.verses[S.course] || [];
+  const learned = vs.filter((v) => S.prog.v[v.id]).length;
+  const nv = nextVerse();
+  const due = new Set([...dueList(), ...Object.entries(S.prog.v).filter(([, it]) => (it.score ?? 100) < WEAK_LINE).map(([id]) => id)]).size;
+  const weekly = S.weekly && !S.prog.v[S.weekly.id] ? S.weekly : null;
+  const focus = weekly || nv;
+  const limitHit = !weekly && learnedToday() >= (S.settings.dailyNew || 1);
+  const nextIdx = nv ? vs.indexOf(nv) : vs.length;
+  const cname = (S.courses.find((c) => c.id === S.course) || {}).name || '';
+  return { vs, learned, nv, due, weekly, focus, limitHit, nextIdx, cname };
+}
+function chipsHTML() { return S.courses.length > 1 ? `<div class="course-pick" role="tablist">${S.courses.map((c) => `<button class="chip ${c.id === S.course ? 'on' : ''}" data-c="${c.id}" role="tab">${esc(c.name)}</button>`).join('')}</div>` : ''; }
+function bindChips(again) {
+  $$('.chip[data-c]').forEach((b) => b.onclick = async () => {
+    S.course = b.dataset.c; await loadVerses(S.course);
+    saveProg({ course: S.course }); S.prog.course = S.course; again();
+  });
+}
+// 지그재그 길 (놀이 · 탐험)
+const WAVE = [0, 1, 1.6, 1, 0, -1, -1.6, -1];
+function pathHTML(vs, nextIdx, explore) {
+  let out = ''; let row = 0;
+  vs.forEach((v, i) => {
+    if (explore && i % PLACE_SIZE === 0) {
+      const g = Math.floor(i / PLACE_SIZE); const grp = vs.slice(i, i + PLACE_SIZE); const got = grp.filter((x) => S.prog.v[x.id]).length;
+      const open = got === grp.length;
+      out += `<div class="place ${open ? 'open' : ''} ${i <= nextIdx && nextIdx < i + PLACE_SIZE ? 'here' : ''}">${badgeSVG(g, 44, open)}<div class="pl"><b>${esc(placeOf(i))}</b><span class="num">${got} / ${grp.length}${open ? ' · 배지 획득' : ''}</span></div></div>`;
+      row = 0;
+    }
+    const it = S.prog.v[v.id]; const done = !!it; const now = i === nextIdx; const locked = !done && !now;
+    const x = WAVE[row % WAVE.length]; row++;
+    const inner = done ? (S.mode === 'play' ? starsHTML(starsOf(it.score ?? 100), 13) : `<span class="num">${it.score ?? ''}</span>`) : now ? '' : icon('lock', 18);
+    const face = done ? icon('check', 26) : now ? (S.mode === 'play' ? lambSVG(52, 'happy') : `<span class="num">${v.no}</span>`) : `<span class="num">${v.no}</span>`;
+    const tag = locked ? 'div' : 'a';
+    out += `<${tag} class="node ${done ? 'done' : ''} ${now ? 'now' : ''} ${locked ? 'locked' : ''} ${done && (it.score ?? 100) < WEAK_LINE ? 'weak' : ''}" style="--x:${x}" ${locked ? '' : `href="#learn/${v.id}"`} aria-label="${esc(v.ref)}">
+      <span class="disc">${face}</span>${now ? `<span class="go">시작</span>` : `<span class="sub">${inner}</span>`}${done || now ? `<span class="cap">${esc(v.topic || v.ref)}</span>` : ''}</${tag}>`;
+  });
+  return `<div class="path">${out}</div>`;
+}
+async function rankHTML(limit = 5) {
+  const club = clubOf(S.user); if (!club) return '';
+  const b = await DB.get('boards/' + club).catch(() => null); if (!b) return '';
+  const rows = Object.entries(b).filter(([k, x]) => x && typeof x === 'object' && x.n).map(([k, x]) => ({ code: k, n: x.n, xp: x.xp || 0 })).sort((a, c) => c.xp - a.xp);
+  if (rows.length < 2) return '';
+  const me = rows.findIndex((r) => r.code === S.user.code);
+  const top = rows.slice(0, limit);
+  if (me >= limit) top.push(rows[me]);
+  return `<section class="sec rank"><div class="sec-head"><h2>${esc(clubName(club))} 순위</h2><span class="small muted nowrap">${me >= 0 ? `나는 <b class="num" style="color:var(--ac)">${me + 1}위</b> · ` : ''}${rows.length}명</span></div>
+    <div style="margin-top:6px">${top.map((r) => { const i = rows.indexOf(r); return `<div class="rank-row ${r.code === S.user.code ? 'me' : ''}"><span class="rk num">${i + 1}</span><b>${esc(r.n)}</b><span class="num">Lv.${levelOf(r.xp).lv}</span><span class="num xpn">${fmt(r.xp)}</span></div>`; }).join('')}</div></section>`;
+}
+function emptyFocus(vs) {
+  return `<p class="vtext" style="font-family:var(--f-ui)">${vs.length ? '이 코스를 모두 마쳤어요! 다시 보기로 오래오래 기억해요.' : '선생님이 말씀을 올리면 여기에 나와요.'}</p>`;
+}
+async function homePlay() {
+  const H = homeData(); const { vs, focus, limitHit } = H;
+  const n = currentStreak();
+  const say = !focus ? (vs.length ? '와, 다 했다! 정말 멋져!' : '조금만 기다려 줘!') : limitHit ? '오늘 분량 끝! 하나 더 해 볼까?' : n > 1 ? `${n}일째 등불이 켜져 있어!` : '오늘도 말씀 새기러 가자!';
+  root.innerHTML = `<div class="shell">${topbar(streakHTML())}<main class="main">
+    <section class="hello fade-in">${lambSVG(84, limitHit ? 'cheer' : 'happy')}<div class="bubble"><b>${esc(callName(S.user.name))}!</b><span>${esc(say)}</span></div></section>
+    <section class="kcard today fade-in">
+      <span class="eyebrow ac">${H.weekly ? '이번 주 암송' : '오늘의 말씀'}</span>
+      ${focus ? `<h1 class="ref head">${esc(focus.ref)}</h1><p class="vtext verse">${esc(focus.text)}</p>
+      <div class="acts"><a class="btn pr big" href="#learn/${focus.id}">${limitHit ? '하나 더 하기' : '시작하기'}</a><a class="btn" href="#review">다시 보기 <span class="num" style="color:var(--ac)">${H.due}</span></a></div>` : emptyFocus(vs)}
+    </section>
+    <section class="sec">${chipsHTML()}
+      <div class="sec-head" style="margin-top:${S.courses.length > 1 ? 18 : 0}px"><h2>${esc(H.cname)}</h2><span class="head num" style="font-size:15px">${H.learned}<span class="muted"> / ${vs.length}</span></span></div>
+      ${pathHTML(vs, H.nextIdx, false)}</section>
+    ${credit()}</main>${tabbar('home')}</div>`;
+  bindChips(homePlay);
+  const now = $('.node.now'); if (now && H.nextIdx > 3) setTimeout(() => now.scrollIntoView({ block: 'center' }), 50);
+}
+async function homeExplore() {
+  const H = homeData(); const { vs, focus } = H;
+  const L = levelOf(S.prog.xp || 0);
+  const place = H.nv ? placeOf(H.nextIdx) : (vs.length ? PLACES[Math.min(PLACES.length - 1, Math.floor((vs.length - 1) / PLACE_SIZE))] : '');
+  const got = Array.from({ length: Math.ceil(vs.length / PLACE_SIZE) }, (_, g) => vs.slice(g * PLACE_SIZE, g * PLACE_SIZE + PLACE_SIZE).every((v) => S.prog.v[v.id])).filter(Boolean).length;
+  root.innerHTML = `<div class="shell">${topbar(streakHTML())}<main class="main">
+    <section class="xcard fade-in">
+      <div class="xc-top"><div class="xc-l"><span class="eyebrow">지금 있는 곳</span><b class="head">${esc(place || '출발 전')}</b></div><div class="xc-r"><span class="eyebrow">배지</span><b class="head num">${got}<span class="muted"> / ${Math.ceil(vs.length / PLACE_SIZE)}</span></b></div></div>
+      <div class="lvbar"><span class="num">Lv.${L.lv}</span><i><b style="width:${L.pct}%"></b></i><span class="num muted">${L.into} / ${L.need}</span></div>
+      <span class="small muted">${esc(exploreTitle(L.lv))}</span>
+    </section>
+    <section class="kcard today fade-in">
+      <span class="eyebrow ac">${H.weekly ? '이번 주 암송' : H.limitHit ? '오늘 분량 완료' : '오늘의 미션'}</span>
+      ${focus ? `<h1 class="ref head">${esc(focus.ref)}</h1><p class="vtext verse">${esc(focus.text)}</p>
+      <div class="acts"><a class="btn pr" href="#learn/${focus.id}">${H.limitHit ? '한 구절 더' : '미션 시작'}</a><a class="btn" href="#review">복습 <span class="num" style="color:var(--ac)">${H.due}</span></a></div>` : emptyFocus(vs)}
+    </section>
+    <div id="rk"></div>
+    <section class="sec">${chipsHTML()}
+      <div class="sec-head" style="margin-top:${S.courses.length > 1 ? 18 : 0}px"><h2>탐험 지도 · ${esc(H.cname)}</h2><span class="head num" style="font-size:15px">${H.learned}<span class="muted"> / ${vs.length}</span></span></div>
+      ${pathHTML(vs, H.nextIdx, true)}</section>
+    ${credit()}</main>${tabbar('home')}</div>`;
+  bindChips(homeExplore);
+  rankHTML(3).then((h) => { const el = $('#rk'); if (el) el.innerHTML = h; });
+  const now = $('.node.now'); if (now && H.nextIdx > 3) setTimeout(() => now.scrollIntoView({ block: 'center' }), 50);
+}
+async function homeChallenge() {
+  const H = homeData(); const { vs, focus } = H;
+  const L = levelOf(S.prog.xp || 0);
+  const scored = Object.values(S.prog.v).filter((x) => x.score != null); const avg = scored.length ? Math.round(scored.reduce((a, x) => a + x.score, 0) / scored.length) : 0;
+  const rows = vs.map((v, i) => {
+    const done = !!S.prog.v[v.id]; const now = i === H.nextIdx; const locked = !done && !now;
+    const it = S.prog.v[v.id] || {}; const st = done ? `<span class="st score ${it.score < WEAK_LINE ? 'low' : ''}">${it.score ?? icon('check', 18)}</span>` : now ? `<span class="st"><i class="dot"></i></span>` : `<span class="st">${icon('lock', 16)}</span>`;
+    const tag = locked ? 'div' : 'a';
+    return `<${tag} class="topic-row ${now ? 'now' : ''} ${locked ? 'locked' : ''}" ${locked ? '' : `href="#learn/${v.id}"`}><span class="n num">${String(v.no).padStart(2, '0')}</span><span style="display:flex;flex-direction:column;gap:3px;min-width:0"><span class="t">${esc(v.topic || v.ref)}</span><span class="r">${esc(v.ref)}</span></span>${st}</${tag}>`;
+  }).join('');
+  root.innerHTML = `<div class="shell">${topbar(streakHTML())}<main class="main">
+    <section class="ccard fade-in">
+      <div class="cc-lv"><span class="eyebrow">LEVEL</span><b class="num">${L.lv}</b><span class="ttl">${esc(challengeTitle(L.lv))}</span></div>
+      <div class="cc-r"><div class="lvbar"><i><b style="width:${L.pct}%"></b></i><span class="num">${L.into} / ${L.need} XP</span></div>
+        <div class="cc-stats"><div><b class="num">${H.learned}</b><span>새긴 말씀</span></div><div><b class="num">${avg}</b><span>평균</span></div><div><b class="num">${currentStreak()}</b><span>연속</span></div></div></div>
+    </section>
+    <section class="sec today fade-in">
+      <div class="sec-head"><span class="eyebrow ac">${H.weekly ? '이번 주 암송' : H.limitHit ? '오늘 분량 완료' : 'TODAY'}</span><span class="eyebrow">${esc(H.cname)}</span></div>
+      ${focus ? `<h1 class="ref head">${esc(focus.ref)}</h1><p class="vtext verse">${esc(focus.text)}</p>
+      <div class="acts"><a class="btn pr" href="#learn/${focus.id}">${H.limitHit ? '한 구절 더' : '도전 시작'}</a><a class="btn" href="#review">복습 <span class="num" style="color:var(--ac)">${H.due}</span></a></div>` : emptyFocus(vs)}
+    </section>
+    <div id="rk"></div>
+    <section class="sec">${chipsHTML()}
+      <div class="sec-head" style="margin-top:${S.courses.length > 1 ? 18 : 0}px"><h2>${esc(H.cname)}</h2><span class="head num" style="font-size:15px">${H.learned}<span class="muted"> / ${vs.length}</span></span></div>
+      <div class="progress"><i style="width:${vs.length ? (H.learned / vs.length) * 100 : 0}%"></i></div>
+      <div style="margin-top:6px">${rows}</div></section>
+    ${credit()}</main>${tabbar('home')}</div>`;
+  bindChips(homeChallenge);
+  rankHTML(5).then((h) => { const el = $('#rk'); if (el) el.innerHTML = h; });
+  const nowRow = $('.topic-row.now'); if (nowRow && H.nextIdx > 4) setTimeout(() => nowRow.scrollIntoView({ block: 'center' }), 50);
 }
 
 /* ───────── 학습 ───────── */
@@ -255,7 +428,10 @@ function speak(text, rate) {
   speechSynthesis.speak(u);
 }
 const STAGE_W = { read: 0, order: 15, blank: 25, chosung: 25, full: 35 };
-const STAGE_NAME = { read: '읽고 듣기', order: '순서 맞추기', blank: '빈칸 채우기', chosung: '초성 보고 쓰기', full: '통째로 쓰기' };
+const STAGE_NAME_ADULT = { read: '읽고 듣기', order: '순서 맞추기', blank: '빈칸 채우기', chosung: '초성 보고 쓰기', full: '통째로 쓰기' };
+const STAGE_NAME_PLAY = { read: '듣고 따라 읽기', order: '말씀 퍼즐', blank: '빈칸 골라 넣기', chosung: '초성 보고 쓰기', full: '통째로 쓰기' };
+const STAGE_NAME = new Proxy({}, { get: (t, k) => (S.mode === 'play' ? STAGE_NAME_PLAY : STAGE_NAME_ADULT)[k], ownKeys: () => Reflect.ownKeys(STAGE_NAME_ADULT), getOwnPropertyDescriptor: (t, k) => ({ enumerable: true, configurable: true, value: STAGE_NAME_ADULT[k] }) });
+const coach = (t, mood = 'happy') => `<div class="coach">${lambSVG(52, mood)}<p class="bubble">${t}</p></div>`;
 function finalScore(sc) {
   let w = 0, t = 0;
   Object.entries(sc).forEach(([k, v]) => { const ww = STAGE_W[k] ?? 0; w += ww; t += ww * v; });
@@ -270,6 +446,7 @@ async function viewLearn(vid, focus = false) {
   const st = S.settings.stages || {};
   let stages = Object.keys(STAGE_NAME).filter((k) => st[k] !== false);
   if (easy()) stages = stages.filter((k) => k !== 'chosung' && k !== 'full');
+  if (S.mode === 'play') stages = stages.filter((k) => ['read', 'order', 'blank'].includes(k));
   if (focus) stages = easy() ? ['blank'] : ['blank', 'full'];
   if (!stages.length) stages = ['read'];
   const rule = courseRule(v.courseId);
@@ -280,6 +457,7 @@ async function viewLearn(vid, focus = false) {
 
   const frame = (body, foot) => {
     const k = stages[si];
+    if (S.mode === 'play') body = body.replace(/^\s*<p class="hint">([\s\S]*?)<\/p>/, (m, t) => coach(t));
     root.innerHTML = `<div class="learn">
       <header class="learn-top">
         <div class="lt-left"><button class="icon-btn" id="xq" aria-label="학습 닫기">${icon('close', 20)}</button>${si > 0 ? `<button class="icon-btn" id="bk" aria-label="이전 단계로">${icon('back', 20)}</button>` : ''}</div>
@@ -314,8 +492,8 @@ async function viewLearn(vid, focus = false) {
         $('#rs').onclick = () => { placed.length = 0; draw(); };
         $('#ck').onclick = () => {
           tries++;
-          if (placed.every((x, j) => x === j)) { toast(tries === 1 ? '한 번에 맞히셨어요' : '잘하셨어요'); done('order', Math.max(40, 100 - 30 * (tries - 1))); }
-          else { $('#bd').classList.add('shake'); toast('순서를 다시 확인해 보세요'); setTimeout(() => { placed.length = 0; draw(); }, 700); }
+          if (placed.every((x, j) => x === j)) { fx('correct'); toast(kid() ? (tries === 1 ? '한 번에 맞혔어!' : '잘했어!') : tries === 1 ? '한 번에 맞히셨어요' : '잘하셨어요'); done('order', Math.max(40, 100 - 30 * (tries - 1))); }
+          else { fx('wrong'); $('#bd').classList.add('shake'); toast(kid() ? '순서를 다시 볼까?' : '순서를 다시 확인해 보세요'); setTimeout(() => { placed.length = 0; draw(); }, 700); }
         };
       };
       draw();
@@ -333,8 +511,8 @@ async function viewLearn(vid, focus = false) {
           frame(`<p class="hint">빈칸에 들어갈 말을 골라 보세요. <span class="num">(${bi + 1}/${blanks.length})</span></p><div class="board">${board}</div>
             <div class="choices">${opts.map((o) => `<button class="choice" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div>`, { one: true, html: `<span class="muted small" style="text-align:center">${msg || '&nbsp;'}</span>` });
           $$('.choice').forEach((b) => b.onclick = () => {
-            if (b.dataset.o === norm(ws[cur])) { b.classList.add('ok'); setTimeout(() => after(true), 350); }
-            else { miss++; b.classList.add('no'); b.disabled = true; }
+            if (b.dataset.o === norm(ws[cur])) { fx('correct'); b.classList.add('ok'); setTimeout(() => after(true), 350); }
+            else { fx('wrong'); miss++; b.classList.add('no'); b.disabled = true; }
           });
         } else {
           frame(`<p class="hint">빈칸에 들어갈 말을 적어 보세요. <span class="num">(${bi + 1}/${blanks.length})</span></p><div class="board">${board}</div>
@@ -403,9 +581,11 @@ async function viewLearn(vid, focus = false) {
     item = { ...item, score: total, best: Math.max(prev.best || 0, total), stages: sc, weak: weakArr, tries: (prev.tries || 0) + 1 };
     if (total < WEAK_LINE) item.due = addDays(today(), 1);
     S.prog.v[v.id] = item;
-    await DB.set('progress/' + S.user.code, { v: { [v.id]: item } });
+    await saveProg({ v: { [v.id]: item } });
     const xp = Math.max(5, Math.round(total / 4));
+    const lvBefore = levelOf(S.prog.xp || 0).lv;
     await touchDay(xp);
+    if (kid()) return finishKid({ v, total, xp, lvBefore, first, weakArr, sc, stages, ws, focus });
     const rows = stages.map((k) => `<div class="score-row"><span>${STAGE_NAME[k]}</span><i><b style="width:${sc[k] ?? 0}%"></b></i><span class="num">${sc[k] ?? 0}</span></div>`).join('');
     root.innerHTML = `<div class="learn"><div class="done-hero fade-in">
       <span class="eyebrow ac">${focus ? '약한 부분 다시' : first ? '새로 새긴 말씀' : '다시 새긴 말씀'} · ${esc(v.ref)}</span>
@@ -418,12 +598,49 @@ async function viewLearn(vid, focus = false) {
       <button class="btn" id="hm">홈으로</button>
       ${weakArr.length ? `<button class="btn" id="again">약한 부분 다시</button>` : ''}
       <button class="btn pr" id="sv">${nextVerse() ? '다음 말씀' : '저장하기'}</button></footer></div>`;
-    const saveNote = async () => { const t = $('#nt').value.trim(); if (t && t !== S.prog.notes[v.id]) { S.prog.notes[v.id] = t; await DB.set('progress/' + S.user.code, { notes: { [v.id]: t } }); } };
+    const saveNote = async () => { const t = $('#nt').value.trim(); if (t && t !== S.prog.notes[v.id]) { S.prog.notes[v.id] = t; await saveProg({ notes: { [v.id]: t } }); } };
     $('#hm').onclick = async () => { await saveNote(); go('#home'); };
     const ag = $('#again'); if (ag) ag.onclick = async () => { await saveNote(); viewLearn(v.id, true); };
     $('#sv').onclick = async () => { await saveNote(); const n = nextVerse(); go(n ? '#learn/' + n.id : '#home'); };
   }
   runStage();
+}
+// 놀이 · 탐험 · 도전 결과 화면
+function finishKid({ v, total, xp, lvBefore, first, weakArr, sc, stages, ws, focus }) {
+  const L = levelOf(S.prog.xp || 0); const up = L.lv > lvBefore;
+  const vs = S.verses[v.courseId] || []; const idx = Math.max(0, vs.findIndex((x) => x.id === v.id));
+  const play = S.mode === 'play';
+  const nStar = starsOf(total);
+  let reward = '';
+  if (play) {
+    reward = `<div class="reward pop">${stickerSVG(idx, 88)}<div><b>${esc(stickerName(idx))} 스티커${first ? '를 받았어!' : '가 반짝여!'}</b><span class="muted">스티커 판에 붙여 두었어</span></div></div>`;
+  } else {
+    const g = Math.floor(idx / PLACE_SIZE); const grp = vs.slice(g * PLACE_SIZE, g * PLACE_SIZE + PLACE_SIZE);
+    const placeDone = S.mode === 'explore' && first && grp.length && grp.every((x) => S.prog.v[x.id]);
+    reward = placeDone ? `<div class="reward pop">${badgeSVG(g, 72)}<div><b>${esc(placeOf(idx))} 배지 획득!</b><span class="muted">다음 장소가 열렸어요</span></div></div>` : '';
+    reward += `<div class="lvbar big"><span class="num">Lv.${L.lv}</span><i><b style="width:${L.pct}%"></b></i><span class="num muted">${L.into} / ${L.need}</span></div>${up ? `<p class="lvup pop">레벨 업! Lv.${L.lv} · ${esc(S.mode === 'explore' ? exploreTitle(L.lv) : challengeTitle(L.lv))}</p>` : ''}`;
+  }
+  const rows = stages.map((k) => `<div class="score-row"><span>${STAGE_NAME[k]}</span><i><b style="width:${sc[k] ?? 0}%"></b></i><span class="num">${sc[k] ?? 0}</span></div>`).join('');
+  const head = play
+    ? `<div class="kid-hero">${lambSVG(110, nStar === 3 ? 'cheer' : nStar === 2 ? 'happy' : 'think')}<div class="kh-r">${starsHTML(nStar, 44)}<b class="head">${nStar === 3 ? '최고야! 완벽해!' : nStar === 2 ? '정말 잘했어!' : '끝까지 해냈어!'}</b><span class="muted num">${total}점</span></div></div>`
+    : `<div class="score-big"><span class="num">${total}</span><em>점</em><span class="grade">${starsHTML(nStar, 22)}</span></div>`;
+  const weakHTML = weakArr.length ? `<div class="weak-box"><span class="eyebrow">${play ? '다음에 또 볼 말' : '다시 볼 단어 · 내일 복습에 나와요'}</span><div class="weak-words">${weakArr.map((i) => `<span>${esc(ws[i])}</span>`).join('')}</div></div>` : '';
+  root.innerHTML = `<div class="learn"><div class="done-hero fade-in">
+    <span class="eyebrow ac">${focus ? '약한 부분 다시' : first ? (play ? '새로 새긴 말씀' : 'MISSION CLEAR') : '다시 새긴 말씀'} · ${esc(v.ref)}</span>
+    ${head}${reward}
+    ${play ? '' : `<div class="score-rows">${rows}</div>`}
+    ${weakHTML}
+    <p class="xp num">+${xp} ${play ? '은혜 점수' : 'XP'} <span class="muted" style="font-family:var(--f-ui);font-size:14px;font-weight:500">· ${currentStreak()}일 연속</span></p>
+    ${S.mode === 'challenge' ? `<div class="field"><label for="nt">이 말씀이 나에게 하는 한 줄</label><textarea class="input verse" id="nt" style="min-height:88px" placeholder="떠오르는 생각을 적어 두세요 (선택)">${esc(S.prog.notes[v.id] || '')}</textarea></div>` : ''}
+  </div><footer class="learn-foot ${weakArr.length ? 'three' : ''}">
+    <button class="btn" id="hm">홈으로</button>
+    ${weakArr.length ? `<button class="btn" id="again">${play ? '한 번 더' : '약한 부분 다시'}</button>` : ''}
+    <button class="btn pr" id="sv">${nextVerse() ? (play ? '다음 말씀' : '다음 미션') : '마치기'}</button></footer></div>`;
+  if (first || nStar === 3 || up) { confetti(); fx('fanfare'); } else fx('correct');
+  const saveNote = async () => { const el = $('#nt'); if (!el) return; const t = el.value.trim(); if (t && t !== S.prog.notes[v.id]) { S.prog.notes[v.id] = t; await saveProg({ notes: { [v.id]: t } }); } };
+  $('#hm').onclick = async () => { await saveNote(); go('#home'); };
+  const ag = $('#again'); if (ag) ag.onclick = async () => { await saveNote(); viewLearn(v.id, true); };
+  $('#sv').onclick = async () => { await saveNote(); const n = nextVerse(); go(n ? '#learn/' + n.id : '#home'); };
 }
 function confirmLeave() {
   return new Promise((resolve) => {
@@ -472,7 +689,7 @@ async function runReview(all) {
       item = { ...item, score, best: Math.max(prev.best || 0, score), weak: weakIdx, stages: prev.stages || {}, tries: (prev.tries || 0) + 1 };
       if (!ok) item.due = addDays(today(), 1);
       S.prog.v[v.id] = item; results.push({ v, score });
-      await DB.set('progress/' + S.user.code, { v: { [v.id]: item } });
+      await saveProg({ v: { [v.id]: item } });
       i++; step();
     };
     if (easy()) {
@@ -542,21 +759,29 @@ async function viewMe() {
   for (const [id, t] of notes.slice(-20).reverse()) { const v = await getVerse(id); if (v) noteVerses.push({ v, t }); }
   const iOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const pickable = S.settings.modeUserPick !== false && (clubOf(S.user) || S.prog.modePick);
 
   root.innerHTML = `<div class="shell">${topbar(streakHTML())}<main class="main fade-in">
-    <section class="sec"><span class="eyebrow">내 기록</span><h1 class="head" style="font-size:calc(28px * var(--k));margin:12px 0 0">${esc(S.user.name)} 님</h1></section>
+    <section class="sec"><span class="eyebrow">${clubOf(S.user) ? esc(clubName(clubOf(S.user))) + (S.user.grade ? ' · ' + esc(S.user.grade) : '') : '내 기록'}</span><h1 class="head" style="font-size:calc(28px * var(--k));margin:12px 0 0">${esc(S.user.name)}${kid() ? '' : ' 님'}</h1></section>
+    ${kid() ? meKid() : ''}
     <div class="stats"><div><b>${learned}</b><span>새긴 말씀</span></div><div><b>${avg}</b><span>평균 점수</span></div><div><b>${currentStreak()}</b><span>연속 일수</span></div><div><b>${fmt(S.prog.xp || 0)}</b><span>은혜 점수</span></div></div>
     <section class="sec"><div class="sec-head"><h2>코스</h2><span class="small muted nowrap">오래 기억한 말씀 ${mastered}</span></div>
       <div style="margin-top:6px">${courseRows.map(({ c, n, total }) => `<div class="list-row"><div class="l"><b>${esc(c.name)}</b><span class="num">${n} / ${total}</span></div>${n >= total && total > 0 ? `<button class="btn sm pr" data-cert="${c.id}">${icon('award', 16)}수료증</button>` : `<span class="small muted num nowrap">${total ? Math.round((n / total) * 100) : 0}%</span>`}</div>`).join('')}</div></section>
     ${noteVerses.length ? `<section class="sec"><div class="sec-head"><h2>나의 한 줄</h2></div>${noteVerses.map(({ v, t }) => `<div class="note"><span class="eyebrow">${esc(v.ref)}</span><p>${esc(t)}</p></div>`).join('')}</section>` : ''}
     <section class="sec"><div class="sec-head"><h2>설정</h2></div>
-      <div class="list-row"><div class="l"><b>쉬운 모드</b><span>타자 대신 골라서 맞히기</span></div><button class="switch ${easy() ? 'on' : ''}" id="ez" aria-label="쉬운 모드" aria-pressed="${easy()}"></button></div>
+      ${pickable ? `<div class="list-row mode-row"><div class="l"><b>화면 모드</b><span>${esc(MODES[S.mode].desc)}</span></div></div>
+      <div class="seg" id="mp" style="margin:4px 0 14px">${[['', '자동'], ['adult', '기본'], ['play', '놀이'], ['explore', '탐험'], ['challenge', '도전']].map(([k, l]) => `<button data-m="${k}" class="${(S.prog.modePick || '') === k ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}
+      ${S.mode === 'play' ? '' : `<div class="list-row"><div class="l"><b>쉬운 모드</b><span>타자 대신 골라서 맞히기</span></div><button class="switch ${easy() ? 'on' : ''}" id="ez" aria-label="쉬운 모드" aria-pressed="${easy()}"></button></div>`}
       ${standalone ? '' : `<div class="list-row"><div class="l"><b>홈 화면에 설치</b><span>${iOS ? '공유 단추 → 홈 화면에 추가' : '앱처럼 바로 열기'}</span></div><button class="btn sm" id="inst">${icon('phone', 16)}설치</button></div>`}
       <div class="list-row"><div class="l"><b>입장 코드</b><span class="num" style="letter-spacing:.1em">${esc(S.user.code)}</span></div><button class="btn sm" id="out">${icon('out', 16)}나가기</button></div>
     </section>
     ${credit()}
   </main>${tabbar('me')}</div>`;
-  $('#ez').onclick = async () => { const nv = !easy(); S.prog.easy = nv; await DB.set('progress/' + S.user.code, { easy: nv }); viewMe(); };
+  $$('#mp button').forEach((b) => b.onclick = async () => {
+    const m = b.dataset.m || null; S.prog.modePick = m; setMode();
+    await saveProg({ modePick: m }); viewMe();
+  });
+  const ez = $('#ez'); if (ez) ez.onclick = async () => { const nv = !easy(); S.prog.easy = nv; await saveProg({ easy: nv }); viewMe(); };
   const inst = $('#inst'); if (inst) inst.onclick = async () => {
     if (S.installEvt) { S.installEvt.prompt(); S.installEvt = null; }
     else modal(`<h3>홈 화면에 설치</h3><p class="muted" style="line-height:1.8;margin:0">${iOS ? 'Safari 아래쪽 <b>공유</b> 단추를 누르고 <b>홈 화면에 추가</b>를 고르세요.' : '브라우저 메뉴(⋮)에서 <b>앱 설치</b> 또는 <b>홈 화면에 추가</b>를 고르세요.'}</p><div class="actions"><button class="btn md pr" data-close>알겠어요</button></div>`);
@@ -565,6 +790,24 @@ async function viewMe() {
   $$('[data-cert]').forEach((b) => b.onclick = () => certificate(S.courses.find((c) => c.id === b.dataset.cert)));
 }
 
+function meKid() {
+  const vs = S.verses[S.course] || [];
+  const L = levelOf(S.prog.xp || 0);
+  if (S.mode === 'play') {
+    const got = vs.filter((v) => S.prog.v[v.id]).length;
+    const show = vs.slice(0, Math.max(12, Math.ceil((got + 1) / 4) * 4 + 4));
+    return `<section class="sec"><div class="sec-head"><h2>내 스티커 판</h2><span class="head num" style="font-size:15px">${got}<span class="muted"> / ${vs.length}</span></span></div>
+      <div class="sticker-book">${show.map((v, i) => { const it = S.prog.v[v.id]; return `<div class="sb-cell ${it ? 'on' : ''}">${stickerSVG(i, 64, !!it)}${it ? starsHTML(starsOf(it.score ?? 100), 11) : `<span class="num muted">${v.no}</span>`}</div>`; }).join('')}</div>
+      ${show.length < vs.length ? `<p class="small muted" style="text-align:center;margin:14px 0 0">말씀을 새길 때마다 스티커 칸이 더 열려요</p>` : ''}</section>`;
+  }
+  if (S.mode === 'explore') {
+    const groups = Math.ceil(vs.length / PLACE_SIZE);
+    return `<section class="sec"><div class="sec-head"><h2>탐험 배지</h2><span class="small muted nowrap num">Lv.${L.lv} · ${esc(exploreTitle(L.lv))}</span></div>
+      <div class="badge-grid">${Array.from({ length: groups }, (_, g) => { const grp = vs.slice(g * PLACE_SIZE, g * PLACE_SIZE + PLACE_SIZE); const n = grp.filter((v) => S.prog.v[v.id]).length; const on = n === grp.length; return `<div class="bg-cell ${on ? 'on' : ''}">${badgeSVG(g, 52, on)}<b>${esc(PLACES[g % PLACES.length])}</b><span class="num muted">${n}/${grp.length}</span></div>`; }).join('')}</div></section>`;
+  }
+  return `<section class="ccard"><div class="cc-lv"><span class="eyebrow">LEVEL</span><b class="num">${L.lv}</b><span class="ttl">${esc(challengeTitle(L.lv))}</span></div>
+    <div class="cc-r"><div class="lvbar"><i><b style="width:${L.pct}%"></b></i><span class="num">${L.into} / ${L.need} XP</span></div><span class="small muted">다음 레벨까지 ${L.need - L.into} XP</span></div></section>`;
+}
 async function certificate(c) {
   await document.fonts.ready;
   const W = 1200, H = 1600; const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d');

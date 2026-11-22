@@ -87,3 +87,25 @@ input[type="range"] { accent-color: var(--ink); }
 .tbl .pub { border: none; background: transparent; height: auto; padding: 0; }
 .inline .input { max-width: 100%; }
 @media (max-width: 820px) { .inline > * { flex: 1 1 100%; } .inline .btn { flex: 0 0 auto; } }
+
+/* 어와나 클럽 */
+.club-filter { display: flex; gap: 8px; overflow-x: auto; padding: 18px 0 4px; scrollbar-width: none; }
+.club-filter::-webkit-scrollbar { display: none; }
+.chip { height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid var(--line); background: var(--sf); font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--sub); display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.chip .num { font-weight: 500; opacity: .75; }
+.chip.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.mode-tag { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; font-weight: 700; white-space: nowrap; background: var(--soft); color: var(--ink); }
+.mode-tag.m-play { background: #FFE4CC; color: #A4431B; }
+.mode-tag.m-explore { background: #D8EBE6; color: #15605E; }
+.mode-tag.m-challenge { background: #1A1F27; color: #D7F25B; }
+.ufields { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+.ufields .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ufields .small.muted { line-height: 1.6; }
+.clubs-btn { justify-content: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.club-checks { margin-top: 16px; display: flex; flex-direction: column; }
+.club-checks label { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; min-height: 52px; border-bottom: 1px solid var(--line); cursor: pointer; column-gap: 8px; }
+.club-checks input { width: 18px; height: 18px; }
+.mode-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 8px 0 8px; }
+.mode-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--sf); }
+.mode-card .small { line-height: 1.5; }
+@media (max-width: 820px) { .mode-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

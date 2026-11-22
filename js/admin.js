@@ -1,7 +1,8 @@
 // 새김 INSCRIBE — 관리자
 import {
   DB, op, whenAuthed, adminSignIn, adminCheck, adminSignOut, adminCodeSignIn, loadSettings, applySettings, markSVG, icon, esc, $, $$, toast, modal, confirmBox,
-  fmt, newCode, today, THEMES, VERSE_FONTS, UI_FONTS, SIZES, STAGES, BATTLE_THEMES, TEAM_COLORS, shrinkImage, DEFAULTS, MOCK
+  fmt, newCode, today, THEMES, VERSE_FONTS, UI_FONTS, SIZES, STAGES, BATTLE_THEMES, TEAM_COLORS, shrinkImage, DEFAULTS, MOCK,
+  CLUBS, MODES, GRADES, gradeToClub, clubOf, clubName
 } from './core.js';
 
 const root = $('#root');
@@ -107,10 +108,11 @@ async function courses() {
     <a class="btn md" href="assets/saegim-upload-template.xlsx" download="새김_말씀업로드_양식.xlsx">${icon('down', 16)}샘플 양식 받기</a>
     <button class="btn md" id="seed">${icon('book', 16)}기본 코스 넣기</button>
     <label class="btn md pr" for="xf" style="cursor:pointer">${icon('up', 16)}엑셀 업로드</label><input type="file" id="xf" accept=".xlsx,.xls,.csv" class="hidden">`),
-  `<div class="tbl"><div style="min-width:760px"><div class="tr th" style="grid-template-columns:48px 2.4fr 90px 150px 110px 150px"><span>순서</span><span>코스</span><span>구절</span><span>정답 규칙</span><span>공개</span><span></span></div>
-    ${A.courses.map((c, i) => `<div class="tr" style="grid-template-columns:48px 2.4fr 90px 150px 110px 150px">
+  `<div class="tbl"><div style="min-width:940px"><div class="tr th" style="grid-template-columns:${CCOLS}"><span>순서</span><span>코스</span><span>보이는 클럽</span><span>구절</span><span>정답 규칙</span><span>공개</span><span></span></div>
+    ${A.courses.map((c, i) => `<div class="tr" style="grid-template-columns:${CCOLS}">
       <span class="head num" style="color:var(--sub)">${String(i + 1).padStart(2, '0')}</span>
       <div class="cell2"><b>${esc(c.name)}</b><span>${esc(c.sample || '')}</span></div>
+      <button class="btn sm clubs-btn" data-clubs="${c.id}">${esc(clubsLabel(c.clubs))}</button>
       <span class="head num">${c.count || 0}</span>
       <select class="input" data-rule="${c.id}" style="height:40px;font-size:14px"><option value="">기본 (${esc(A.settings.rule)})</option>${['엄격', '보통', '느슨'].map((r) => `<option ${c.rule === r ? 'selected' : ''}>${r}</option>`).join('')}</select>
       <button class="btn sm ghost pub" data-pub="${c.id}" style="color:${c.published !== false ? 'var(--ok)' : 'var(--sub)'};justify-content:flex-start;padding:0"><i></i>${c.published !== false ? '공개' : '숨김'}</button>
@@ -136,6 +138,14 @@ async function courses() {
     toast('삭제했습니다'); await refresh(); courses();
   });
   $$('[data-view]').forEach((b) => b.onclick = () => viewVerses(A.courses.find((x) => x.id === b.dataset.view)));
+  $$('[data-clubs]').forEach((b) => b.onclick = () => {
+    const c = A.courses.find((x) => x.id === b.dataset.clubs); const cur = c.clubs || [];
+    modal(`<h3>보이는 클럽</h3><p class="muted small" style="margin:0;line-height:1.7">「${esc(c.name)}」를 볼 수 있는 사람을 고릅니다. 아무것도 고르지 않으면 모두에게 보입니다.</p>
+      <div class="club-checks">${[['adult', '어른 · 클럽 없음', ''], ...CLUBS.map((k) => [k.id, k.name, k.age])].map(([id, n, age]) => `<label><input type="checkbox" value="${id}" ${cur.includes(id) ? 'checked' : ''}><b>${esc(n)}</b><span class="small muted">${esc(age)}</span></label>`).join('')}</div>
+      <div class="actions"><button class="btn md" data-close>취소</button><button class="btn md pr" id="go">저장</button></div>`, {
+      onMount(el, close) { $('#go', el).onclick = async () => { const v = $$('input:checked', el).map((x) => x.value); await DB.set('courses/' + c.id, { clubs: v }); close(); toast('저장했습니다'); await refresh(); courses(); }; }
+    });
+  });
   $('#xf').onchange = (e) => { const f = e.target.files[0]; if (f) importExcel(f); e.target.value = ''; };
   $('#seed').onclick = seedDialog;
 }
@@ -153,6 +163,12 @@ async function viewVerses(c) {
   });
 }
 
+const CCOLS = '48px 2.2fr 150px 76px 140px 92px 150px';
+function clubsLabel(cl) {
+  if (!cl || !cl.length) return '모두';
+  const n = cl.map((x) => (x === 'adult' ? '어른' : clubName(x)));
+  return n.length > 2 ? `${n.slice(0, 2).join(', ')} 외 ${n.length - 2}` : n.join(', ');
+}
 function cleanRef(a) { return String(a || '').trim().replace(/^([가-힣]+)\s*(\d)/, '$1 $2').replace(/,\s*/g, ', '); }
 async function importExcel(file) {
   if (!window.XLSX) return toast('엑셀 도구를 불러오지 못했습니다');
@@ -219,48 +235,77 @@ async function users() {
     <button class="btn md" id="xl">${icon('down', 16)}코드 목록 받기</button>
     <button class="btn md" id="bulk">${icon('users', 16)}여러 명 추가</button>
     <button class="btn md pr" id="add">${icon('plus', 16)}사용자 추가</button>`),
-  `<div class="tbl"><div style="min-width:760px"><div class="tr th" style="grid-template-columns:1.4fr 1fr 140px 100px 150px"><span>이름</span><span>팀</span><span>입장 코드</span><span>새긴 말씀</span><span></span></div>
-    <div id="ul">${A.users.map((u) => `<div class="tr" data-name="${esc(u.name)}" style="grid-template-columns:1.4fr 1fr 140px 100px 150px">
+  `<div class="club-filter" id="cf">${[['', '전체'], ['none', '클럽 없음'], ...CLUBS.map((c) => [c.id, c.name])].map(([k, l]) => `<button class="chip ${k === '' ? 'on' : ''}" data-cf="${k}">${esc(l)} <span class="num">${k === '' ? A.users.length : A.users.filter((u) => (clubOf(u) || 'none') === k).length}</span></button>`).join('')}</div>
+  <div class="tbl"><div style="min-width:940px"><div class="tr th" style="grid-template-columns:${UCOLS}"><span>이름</span><span>팀</span><span>클럽 · 학년</span><span>화면</span><span>입장 코드</span><span>새긴 말씀</span><span></span></div>
+    <div id="ul">${A.users.map((u) => `<div class="tr" data-name="${esc(u.name)}" data-club="${clubOf(u) || 'none'}" style="grid-template-columns:${UCOLS}">
       <b class="nowrap">${esc(u.name)}</b><span class="nowrap" style="display:flex;align-items:center;gap:8px"><i class="dot-color" style="background:${tcol(u.team)}"></i>${esc(tname(u.team))}</span>
+      <span class="nowrap">${clubOf(u) ? `<b>${esc(clubName(clubOf(u)))}</b>${u.grade ? ` <span class="muted">· ${esc(u.grade)}</span>` : ''}${!u.club && u.grade ? ' <span class="muted small">(학년)</span>' : ''}` : `<span class="muted">${u.grade ? esc(u.grade) : '-'}</span>`}</span>
+      <span class="nowrap">${modeTag(u)}</span>
       <span class="code-pill">${esc(u.id)}</span><span class="head num">${Object.keys((pmap[u.id] || {}).v || {}).length}</span>
       <div class="acts"><button class="icon-btn" data-edit="${u.id}" aria-label="고치기">${icon('edit', 18)}</button><button class="icon-btn" data-re="${u.id}" aria-label="코드 다시 발급">${icon('key', 18)}</button><button class="icon-btn" data-del="${u.id}" aria-label="삭제">${icon('trash', 18)}</button></div></div>`).join('') || '<p class="muted" style="padding:24px 0">아직 사용자가 없습니다.</p>'}</div>
   </div></div>`);
-  $('#q').oninput = (e) => { const q = e.target.value.trim(); $$('#ul .tr').forEach((r) => r.classList.toggle('hidden', !!q && !r.dataset.name.includes(q))); };
+  let cf = '';
+  const filt = () => { const q = $('#q').value.trim(); $$('#ul .tr').forEach((r) => r.classList.toggle('hidden', (!!q && !r.dataset.name.includes(q)) || (!!cf && r.dataset.club !== cf))); };
+  $('#q').oninput = filt;
+  $$('[data-cf]').forEach((b) => b.onclick = () => { cf = b.dataset.cf; $$('[data-cf]').forEach((x) => x.classList.toggle('on', x === b)); filt(); });
   const teamOpts = (sel) => `<option value="">팀 없음</option>${A.teams.map((t) => `<option value="${t.id}" ${sel === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}`;
-  $('#add').onclick = () => modal(`<h3>사용자 추가</h3><div style="display:flex;flex-direction:column;gap:16px;margin-top:16px"><div class="field"><label for="un">이름</label><input class="input" id="un"></div><div class="field"><label for="ut">팀</label><select class="input" id="ut">${teamOpts()}</select></div></div><div class="actions"><button class="btn md" data-close>취소</button><button class="btn md pr" id="go">추가하고 코드 받기</button></div>`, {
+  $('#add').onclick = () => modal(`<h3>사용자 추가</h3>${userFields({}, teamOpts())}<div class="actions"><button class="btn md" data-close>취소</button><button class="btn md pr" id="go">추가하고 코드 받기</button></div>`, {
     onMount(el, close) {
-      $('#un', el).focus();
+      $('#un', el).focus(); bindUserFields(el);
       $('#go', el).onclick = async () => {
-        const name = $('#un', el).value.trim(); if (!name) return toast('이름을 적어 주세요');
-        const code = await uniqueCode(); await DB.set('users/' + code, { name, team: $('#ut', el).value || null, active: true, createdAt: Date.now() }, false);
+        const f = readUser(el); const name = f.name; if (!name) return toast('이름을 적어 주세요');
+        const code = await uniqueCode(); await DB.set('users/' + code, { ...f, active: true, createdAt: Date.now() }, false);
         close(); showCode(name, code); users();
       };
     }
   });
-  $('#bulk').onclick = () => modal(`<h3>여러 명 추가</h3><p class="muted small" style="margin:0;line-height:1.7">한 줄에 한 사람씩 적어 주세요. 팀이 있으면 쉼표 뒤에 팀 이름을 적습니다.<br>예) 홍길동, 1사랑방</p><textarea class="input" id="bl" style="margin-top:16px;min-height:220px"></textarea><div class="actions"><button class="btn md" data-close>취소</button><button class="btn md pr" id="go">추가하기</button></div>`, {
+  $('#bulk').onclick = () => modal(`<h3>여러 명 추가</h3><p class="muted small" style="margin:0;line-height:1.7">한 줄에 한 사람씩 적어 주세요. 이름 뒤에 쉼표로 팀, 클럽, 학년을 아무 순서로 적을 수 있습니다.<br>예) 홍길동, 1사랑방 · 김하늘, 스팍스, 초1 · 이바다, 초5</p>
+    <textarea class="input" id="bl" style="margin-top:16px;min-height:200px"></textarea>
+    <div class="inline" style="margin-top:12px;gap:10px;flex-wrap:wrap"><a class="btn sm" href="#" id="ut-x">${icon('down', 16)}엑셀 양식 받기</a><label class="btn sm" for="ux" style="cursor:pointer">${icon('up', 16)}엑셀로 채우기</label><input type="file" id="ux" accept=".xlsx,.xls,.csv" class="hidden"><span class="small muted">이름 · 팀 · 클럽 · 학년 칸</span></div>
+    <div class="actions"><button class="btn md" data-close>취소</button><button class="btn md pr" id="go">추가하기</button></div>`, {
     onMount(el, close) {
+      $('#ut-x', el).onclick = (e) => {
+        e.preventDefault();
+        const ws = XLSX.utils.json_to_sheet([{ 이름: '김하늘', 팀: '', 클럽: '스팍스', 학년: '초1' }, { 이름: '이바다', 팀: '', 클럽: '', 학년: '초5' }]);
+        ws['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 8 }];
+        const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '사용자'); XLSX.writeFile(wb, '새김_사용자_양식.xlsx');
+      };
+      $('#ux', el).onchange = async (e) => {
+        const f = e.target.files[0]; if (!f || !window.XLSX) return;
+        const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+        const g = (r, k) => String(r[Object.keys(r).find((x) => x.replace(/\s/g, '') === k)] ?? '').trim();
+        $('#bl', el).value = rows.map((r) => [g(r, '이름'), g(r, '팀'), g(r, '클럽'), g(r, '학년')].filter(Boolean).join(', ')).filter((l) => l && !l.startsWith('예)')).join('\n');
+        toast(`${rows.length}줄을 불러왔습니다`); e.target.value = '';
+      };
       $('#go', el).onclick = async () => {
         const lines = $('#bl', el).value.split('\n').map((l) => l.trim()).filter(Boolean); if (!lines.length) return;
         $('#go', el).disabled = true; const ops = [];
         for (const l of lines) {
-          const [name, team] = l.split(/[,\t]/).map((x) => (x || '').trim());
-          const t = team ? A.teams.find((x) => x.name === team) : null;
+          const [name, ...rest] = l.split(/[,\t]/).map((x) => (x || '').trim());
+          if (!name) continue;
+          const d = { name, team: null, club: null, grade: null, mode: 'auto' };
+          rest.filter(Boolean).forEach((x) => {
+            const t = A.teams.find((y) => y.name === x); if (t) { d.team = t.id; return; }
+            const c = findClub(x); if (c) { d.club = c; return; }
+            if (GRADES.includes(x)) d.grade = x;
+          });
           const code = await uniqueCode(ops.map((o) => o.path.split('/')[1]));
-          ops.push({ path: 'users/' + code, merge: false, data: { name, team: t ? t.id : null, active: true, createdAt: Date.now() } });
+          ops.push({ path: 'users/' + code, merge: false, data: { ...d, active: true, createdAt: Date.now() } });
         }
         await DB.batch(ops); close(); toast(`${ops.length}명을 추가했습니다`); users();
       };
     }
   });
   $('#xl').onclick = () => {
-    const rows = A.users.map((u) => ({ 이름: u.name, 팀: tname(u.team), 입장코드: u.id, 주소: APP_URL() }));
-    const ws = XLSX.utils.json_to_sheet(rows); ws['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 44 }];
+    const rows = A.users.map((u) => ({ 이름: u.name, 팀: tname(u.team), 클럽: clubName(clubOf(u)) || '', 학년: u.grade || '', 입장코드: u.id, 주소: APP_URL() }));
+    const ws = XLSX.utils.json_to_sheet(rows); ws['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 44 }];
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '입장코드'); XLSX.writeFile(wb, `새김_입장코드_${today()}.xlsx`);
   };
   $$('[data-edit]').forEach((b) => b.onclick = () => {
     const u = A.users.find((x) => x.id === b.dataset.edit);
-    modal(`<h3>사용자 고치기</h3><div style="display:flex;flex-direction:column;gap:16px;margin-top:16px"><div class="field"><label for="un">이름</label><input class="input" id="un" value="${esc(u.name)}"></div><div class="field"><label for="ut">팀</label><select class="input" id="ut">${teamOpts(u.team)}</select></div></div><div class="actions"><button class="btn md" data-close>취소</button><button class="btn md pr" id="go">저장</button></div>`, {
-      onMount(el, close) { $('#go', el).onclick = async () => { await DB.set('users/' + u.id, { name: $('#un', el).value.trim(), team: $('#ut', el).value || null }); await DB.set('progress/' + u.id, { team: $('#ut', el).value || null, name: $('#un', el).value.trim() }); close(); users(); }; }
+    modal(`<h3>사용자 고치기</h3>${userFields(u, teamOpts(u.team))}<div class="actions"><button class="btn md" data-close>취소</button><button class="btn md pr" id="go">저장</button></div>`, {
+      onMount(el, close) { bindUserFields(el); $('#go', el).onclick = async () => { const f = readUser(el); if (!f.name) return toast('이름을 적어 주세요'); await DB.set('users/' + u.id, f); await DB.set('progress/' + u.id, { team: f.team, name: f.name, club: clubOf(f) }); close(); users(); }; }
     });
   });
   $$('[data-re]').forEach((b) => b.onclick = async () => {
@@ -277,6 +322,41 @@ async function users() {
     if (!(await confirmBox('사용자 삭제', `${esc(u.name)} 님과 외운 기록을 지웁니다. 되돌릴 수 없습니다.`, '삭제', true))) return;
     await DB.batch([{ path: 'users/' + u.id, del: true }, { path: 'progress/' + u.id, del: true }]); users();
   });
+}
+const UCOLS = '1.3fr 1fr 1.2fr 84px 130px 84px 150px';
+function findClub(x) {
+  const k = String(x || '').trim().toLowerCase().replace(/\s/g, '');
+  const c = CLUBS.find((c) => c.name.toLowerCase() === k || c.en.toLowerCase().replace(/\s/g, '') === k || c.id === k || (k === 'tt' && c.id === 'tnt'));
+  return c ? c.id : null;
+}
+function modeTag(u) {
+  const auto = !u.mode || u.mode === 'auto';
+  const m = auto ? ((A.settings.clubModes || {})[clubOf(u)] || 'adult') : u.mode;
+  return `<span class="mode-tag m-${m}">${esc(MODES[m] ? MODES[m].name : '기본')}</span>${auto ? '' : '<span class="small muted"> 고정</span>'}`;
+}
+function userFields(u, teamOptsHTML) {
+  return `<div class="ufields">
+    <div class="field"><label for="un">이름</label><input class="input" id="un" value="${esc(u.name || '')}"></div>
+    <div class="field"><label for="ut">팀</label><select class="input" id="ut">${teamOptsHTML}</select></div>
+    <div class="two">
+      <div class="field"><label for="ug">학년</label><select class="input" id="ug"><option value="">정하지 않음</option>${GRADES.map((g) => `<option ${u.grade === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
+      <div class="field"><label for="uc">어와나 클럽</label><select class="input" id="uc"><option value="">학년으로 자동</option>${CLUBS.map((c) => `<option value="${c.id}" ${u.club === c.id ? 'selected' : ''}>${esc(c.name)} · ${esc(c.age)}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>화면 모드</label><div class="seg" id="um">${[['auto', '클럽 따라'], ['adult', '기본'], ['play', '놀이'], ['explore', '탐험'], ['challenge', '도전']].map(([k, l]) => `<button type="button" data-v="${k}" class="${(u.mode || 'auto') === k ? 'on' : ''}">${l}</button>`).join('')}</div><span class="small muted" id="umd"></span></div>
+  </div>`;
+}
+function bindUserFields(el) {
+  const upd = () => {
+    const club = $('#uc', el).value || gradeToClub($('#ug', el).value);
+    const pick = ($('#um .on', el) || {}).dataset?.v || 'auto';
+    const m = pick === 'auto' ? ((A.settings.clubModes || {})[club] || 'adult') : pick;
+    $('#umd', el).textContent = `${club ? clubName(club) + ' · ' : ''}${MODES[m].name} 모드 — ${MODES[m].desc}`;
+  };
+  $$('#um button', el).forEach((b) => b.onclick = () => { $$('#um button', el).forEach((x) => x.classList.toggle('on', x === b)); upd(); });
+  $('#uc', el).onchange = upd; $('#ug', el).onchange = upd; upd();
+}
+function readUser(el) {
+  return { name: $('#un', el).value.trim(), team: $('#ut', el).value || null, grade: $('#ug', el).value || null, club: $('#uc', el).value || null, mode: ($('#um .on', el) || {}).dataset?.v || 'auto' };
 }
 async function uniqueCode(taken = []) {
   for (let i = 0; i < 20; i++) { const c = newCode(); if (taken.includes(c)) continue; const ex = await DB.get('users/' + c); if (!ex) return c; }
@@ -360,6 +440,13 @@ async function settings() {
       <div class="set-row"><div class="lab"><b>음성 듣기 속도</b><span>읽고 듣기 단계의 낭독</span></div>${seg('ttsRate', ['0.8', '0.9', '1', '1.1', '1.2'], String(s.ttsRate))}</div>
       <div class="set-row"><div class="lab"><b>처음부터 쉬운 모드</b><span>타자 대신 골라서 맞히기 · 사용자가 바꿀 수 있습니다</span></div><button class="switch ${s.easyDefault ? 'on' : ''}" id="easyDefault" aria-label="쉬운 모드 기본값"></button></div>
     </section>
+    <section class="ad-sec"><h2>어와나 클럽 화면</h2>
+      <p class="muted small" style="margin:0 0 8px;line-height:1.7">사용자에게 클럽이나 학년을 정해 주면 아래 표에 따라 화면이 바뀝니다. 사용자마다 따로 고정할 수도 있습니다.</p>
+      <div class="mode-cards">${Object.entries(MODES).map(([k, m]) => `<div class="mode-card m-${k}"><span class="mode-tag m-${k}">${esc(m.name)}</span><span class="small muted">${esc(m.desc)}</span></div>`).join('')}</div>
+      ${CLUBS.map((c) => `<div class="set-row"><div class="lab"><b>${esc(c.name)} <span class="muted" style="font-weight:500">${esc(c.en)}</span></b><span>${esc(c.age)}</span></div><div class="seg" data-club="${c.id}">${Object.entries(MODES).map(([k, m]) => `<button class="${(s.clubModes || {})[c.id] === k ? 'on' : ''}" data-v="${k}">${esc(m.name)}</button>`).join('')}</div></div>`).join('')}
+      <div class="set-row"><div class="lab"><b>사용자가 모드 바꾸기</b><span>내 기록에서 스스로 화면 모드를 고를 수 있게</span></div><button class="switch ${s.modeUserPick !== false ? 'on' : ''}" id="modeUserPick" aria-label="사용자가 모드 바꾸기"></button></div>
+      <div class="set-row"><div class="lab"><b>미리 보기</b><span>각 모드가 어떻게 보이는지 새 창에서 봅니다</span></div><div class="inline" style="gap:8px;flex-wrap:wrap">${['play', 'explore', 'challenge'].map((k) => `<a class="btn sm" target="_blank" rel="noopener" href="./?preview=${k}${MOCK ? '&mock' : ''}">${esc(MODES[k].name)} 모드</a>`).join('')}</div></div>
+    </section>
     <section class="ad-sec"><h2>정답 규칙</h2>
       <div class="set-row top"><div class="lab" style="padding-top:10px"><b>기본 규칙</b><span>코스와 대전마다 따로 바꿀 수 있습니다</span></div><div style="display:flex;flex-direction:column;gap:14px">${seg('rule', ['엄격', '보통', '느슨'], s.rule)}<p class="muted small" id="rd" style="margin:0;line-height:1.7">${ruleDesc[s.rule]}</p></div></div>
     </section>
@@ -384,6 +471,9 @@ async function settings() {
     if (k === 'volume') s.battle.volume = { '작게': 0.4, '보통': 0.7, '크게': 1 }[v]; if (k === 'time') s.battle.time = Number(v); if (k === 'count') s.battle.count = Number(v); if (k === 'scoring') s.battle.scoring = v === '정답만' ? 'correct' : 'speed';
     live();
   }));
+  s.clubModes = { ...(DEFAULTS.clubModes), ...(s.clubModes || {}) };
+  $$('[data-club]').forEach((g) => $$('button', g).forEach((b) => b.onclick = () => { $$('button', g).forEach((x) => x.classList.toggle('on', x === b)); s.clubModes[g.dataset.club] = b.dataset.v; }));
+  $('#modeUserPick').onclick = (e) => { s.modeUserPick = s.modeUserPick === false; e.currentTarget.classList.toggle('on', s.modeUserPick !== false); };
   $$('[data-stage]').forEach((b) => b.onclick = () => { const k = b.dataset.stage; s.stages[k] = s.stages[k] === false; b.classList.toggle('on', s.stages[k] !== false); });
   $$('[data-step]').forEach((b) => b.onclick = () => { s.dailyNew = Math.max(1, Math.min(10, s.dailyNew + Number(b.dataset.step))); $('#dn').textContent = s.dailyNew + '구절'; });
   $('#bsound').onclick = (e) => { s.battle.sound = s.battle.sound === false; e.currentTarget.classList.toggle('on', s.battle.sound !== false); };

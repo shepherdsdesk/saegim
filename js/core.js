@@ -169,8 +169,52 @@ export const DEFAULTS = {
   easyDefault: false,
   rule: '보통',
   battle: { time: 20, count: 10, scoring: 'speed', theme: '여리고 성벽', sound: true, bgm: true, volume: 0.7 },
-  weeklyVerse: null
+  weeklyVerse: null,
+  clubModes: { puggles: 'play', cubbies: 'play', sparks: 'play', tnt: 'explore', trek: 'challenge', journey: 'challenge' },
+  modeUserPick: true
 };
+
+/* ───────── 어와나 클럽 · 화면 모드 ───────── */
+export const CLUBS = [
+  { id: 'puggles', name: '퍼글스', en: 'Puggles', age: '만 2~3세' },
+  { id: 'cubbies', name: '커비스', en: 'Cubbies', age: '4~5세' },
+  { id: 'sparks', name: '스팍스', en: 'Sparks', age: '6세~초2' },
+  { id: 'tnt', name: 'T&T', en: 'T&T', age: '초3~초6' },
+  { id: 'trek', name: '트렉', en: 'Trek', age: '중1~중3' },
+  { id: 'journey', name: '저니', en: 'Journey', age: '고1~고3' }
+];
+export const MODES = {
+  adult: { name: '기본', desc: '어른용 · 차분한 기본 화면' },
+  play: { name: '놀이', desc: '유치·초등 저학년 · 고르고 맞히기, 별과 스티커' },
+  explore: { name: '탐험', desc: '초등 고학년 · 성경 지도 탐험, 배지와 레벨' },
+  challenge: { name: '도전', desc: '중고등 · 어두운 화면, 레벨과 순위' }
+};
+export const GRADES = ['미취학', '초1', '초2', '초3', '초4', '초5', '초6', '중1', '중2', '중3', '고1', '고2', '고3', '청년', '장년'];
+export function gradeToClub(g) {
+  if (!g) return null;
+  if (g === '미취학') return 'cubbies';
+  if (g === '초1' || g === '초2') return 'sparks';
+  if (/^초[3-6]$/.test(g)) return 'tnt';
+  if (/^중/.test(g)) return 'trek';
+  if (/^고/.test(g)) return 'journey';
+  return null;
+}
+export const clubOf = (u) => (u && (u.club || gradeToClub(u.grade))) || null;
+export const clubName = (id) => (CLUBS.find((c) => c.id === id) || {}).name || '';
+// 사용자 지정 → 클럽 기본값 → 기본 화면
+export function resolveMode(u, s, pick) {
+  if (pick && MODES[pick] && s.modeUserPick !== false) return pick;
+  if (u && u.mode && u.mode !== 'auto' && MODES[u.mode]) return u.mode;
+  const c = clubOf(u); const m = c && (s.clubModes || {})[c];
+  return MODES[m] ? m : 'adult';
+}
+export function applyMode(mode) {
+  const root = document.documentElement;
+  if (mode && mode !== 'adult') root.dataset.mode = mode; else delete root.dataset.mode;
+  if (lastLook) loadFonts(lastLook);
+  const tc = document.querySelector('meta[name=theme-color]');
+  if (tc) tc.content = ({ play: '#FFF6E8', explore: '#F3EFE3', challenge: '#0D1015' })[mode] || '#FAF8F4';
+}
 export const THEMES = ['새벽', '감람산', '성막', '광야', '별밤'];
 export const VERSE_FONTS = { '고운바탕': "'Gowun Batang', serif", '함렛': "'Hahmlet', serif", '나눔명조': "'Nanum Myeongjo', serif", '노토 세리프': "'Noto Serif KR', serif" };
 export const UI_FONTS = { 'IBM Plex': "'IBM Plex Sans KR', 'Apple SD Gothic Neo', sans-serif", '노토 산스': "'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif", '고딕 A1': "'Gothic A1', 'Apple SD Gothic Neo', sans-serif" };
@@ -196,9 +240,13 @@ const FONT_Q = {
   '고운바탕': 'Gowun+Batang:wght@400;700', '함렛': 'Hahmlet:wght@400;500;600;700', '나눔명조': 'Nanum+Myeongjo:wght@400;700', '노토 세리프': 'Noto+Serif+KR:wght@400;600',
   'IBM Plex': 'IBM+Plex+Sans+KR:wght@400;500;600;700', '노토 산스': 'Noto+Sans+KR:wght@400;500;700', '고딕 A1': 'Gothic+A1:wght@400;500;700'
 };
+// 화면 모드마다 더 받는 글꼴
+const MODE_FONTS = { play: ['Jua', 'Gowun+Dodum'], explore: ['Do+Hyeon', 'Gowun+Dodum'], challenge: [] };
+let lastLook = null;
 // 고른 글꼴만 불러와 첫 화면을 빠르게
 function loadFonts(s) {
-  const fams = [...new Set(['Hahmlet:wght@400;500;600;700', FONT_Q[s.verseFont] || FONT_Q['고운바탕'], FONT_Q[s.uiFont] || FONT_Q['IBM Plex']])];
+  const mode = document.documentElement.dataset.mode || 'adult';
+  const fams = [...new Set(['Hahmlet:wght@400;500;600;700', FONT_Q[s.verseFont] || FONT_Q['고운바탕'], FONT_Q[s.uiFont] || FONT_Q['IBM Plex'], ...(MODE_FONTS[mode] || [])])];
   try { localStorage.setItem('saegim-fonts', JSON.stringify(fams)); } catch (e) {}
   const link = document.getElementById('gf'); if (!link) return;
   const href = 'https://fonts.googleapis.com/css2?family=' + fams.join('&family=') + '&display=swap';
@@ -215,6 +263,7 @@ export async function getAsset(key, version) {
 }
 export function cachedSettings() { try { return JSON.parse(localStorage.getItem('saegim-settings') || 'null'); } catch (e) { return null; } }
 export function applyLook(s) {
+  lastLook = s;
   const root = document.documentElement;
   root.dataset.theme = s.theme;
   root.dataset.size = s.textSize;

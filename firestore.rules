@@ -44,6 +44,12 @@ service cloud.firestore {
       allow write: if isAdmin() || (signedIn() && exists(/databases/$(database)/documents/users/$(code)));
     }
 
+    // 클럽 순위표: 로그인한 사용자가 자기 점수를 올리고 같은 클럽 순위를 봅니다
+    match /boards/{club} {
+      allow read: if signedIn();
+      allow write: if signedIn() && club in ['puggles', 'cubbies', 'sparks', 'tnt', 'trek', 'journey'];
+    }
+
     match /rooms/{room} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.hostUid == request.auth.uid;
