@@ -83,6 +83,7 @@ const SCALES = {
   '홍해 건너기': { base: 53, bpm: 84, scale: [0, 2, 4, 7, 9], prog: [0, 5, 9, 7], wave: 'sine' },
   '갈멜산 제단': { base: 45, bpm: 96, scale: [0, 3, 5, 7, 10], prog: [0, 3, 5, 3], wave: 'triangle' },
   '노아의 방주': { base: 55, bpm: 76, scale: [0, 2, 4, 7, 9], prog: [0, 9, 5, 7], wave: 'sine' },
+  '어린 양 달리기': { base: 60, bpm: 116, scale: [0, 2, 4, 7, 9], prog: [0, 5, 7, 5], wave: 'triangle' },
   '아케이드': { base: 57, bpm: 128, scale: [0, 3, 5, 7, 10], prog: [0, 0, 5, 7], wave: 'square' }
 };
 const midi = (m) => 440 * Math.pow(2, (m - 69) / 12);

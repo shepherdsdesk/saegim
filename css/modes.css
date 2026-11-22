@@ -259,3 +259,20 @@ html[data-mode="play"] .node.done.weak .disc { background: var(--ac); box-shadow
 @keyframes sway { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
 @media (min-width: 700px) { .deco-slot.l { left: 12%; } .deco-slot.r { right: 12%; } .deco svg { transform: scale(1.25); } }
 @media (prefers-reduced-motion: reduce) { .deco-slot .deco { animation: none; } }
+
+/* 장면이 살아 움직이기 */
+.scene-bg .cl1 { animation: cloudA 30s linear infinite; }
+.scene-bg .cl2 { animation: cloudA 44s linear infinite; animation-delay: -20s; }
+@keyframes cloudA { from { transform: translateX(-140px); } to { transform: translateX(420px); } }
+.scene-bg .sun .halo { transform-origin: 350px 38px; animation: halo 3s ease-in-out infinite; }
+@keyframes halo { 50% { transform: scale(1.25); opacity: .12; } }
+.scene-bg .bird { animation: bird 18s linear infinite; }
+@keyframes bird { from { transform: translate(-200px, 10px); } 50% { transform: translate(100px, -6px); } to { transform: translate(420px, 6px); } }
+.lamb .eyes { transform-box: fill-box; transform-origin: center; animation: lblink 5s infinite; }
+@keyframes lblink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.1); } }
+html[data-mode="play"] .unit { position: relative; overflow: hidden; }
+html[data-mode="play"] .unit::after { content: ''; position: absolute; top: 0; bottom: 0; left: -40%; width: 30%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent); transform: skewX(-20deg); animation: ushine 5s ease-in-out infinite; }
+@keyframes ushine { 0%, 60% { left: -40%; } 100% { left: 130%; } }
+.node.done .disc { transition: transform .15s; }
+.node:not(.locked):active .disc { transform: translateY(4px); }
+@media (prefers-reduced-motion: reduce) { .scene-bg *, .lamb .eyes, .unit::after { animation: none !important; } }

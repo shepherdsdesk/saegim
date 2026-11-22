@@ -21,7 +21,7 @@ export function lambSVG(size = 96, mood = 'happy') {
     <ellipse cx="91" cy="58" rx="11" ry="6.5" transform="rotate(25 91 58)" fill="#F5C9B0"/>
     <ellipse cx="60" cy="64" rx="24" ry="22" fill="#FFE8D6"/>
     <circle cx="48" cy="40" r="9" fill="#fff" stroke="#EADFD3" stroke-width="2"/><circle cx="60" cy="36" r="10" fill="#fff" stroke="#EADFD3" stroke-width="2"/><circle cx="72" cy="40" r="9" fill="#fff" stroke="#EADFD3" stroke-width="2"/>
-    ${eyes}
+    <g class="eyes">${eyes}</g>
     <circle cx="42" cy="70" r="4.5" fill="#FFB4A2" opacity=".75"/><circle cx="78" cy="70" r="4.5" fill="#FFB4A2" opacity=".75"/>
     ${mouth}
   </svg>`;
@@ -127,9 +127,10 @@ export function sceneSVG() {
   return `<svg class="scene-bg" viewBox="0 0 400 180" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
     <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9ED8FF"/><stop offset="1" stop-color="#DDF2FF"/></linearGradient></defs>
     <rect width="400" height="180" fill="url(#sky)"/>
-    <circle cx="350" cy="38" r="20" fill="#FFD95C"/><circle cx="350" cy="38" r="30" fill="#FFD95C" opacity=".25"/>
-    <path d="M60 46a10 10 0 0 1 2-20 14 14 0 0 1 26-3 11 11 0 0 1 10 23z" fill="#fff"/>
-    <path d="M230 30a8 8 0 0 1 1-16 11 11 0 0 1 21-2 9 9 0 0 1 8 18z" fill="#fff" opacity=".9"/>
+    <g class="sun"><circle cx="350" cy="38" r="30" fill="#FFD95C" opacity=".25" class="halo"/><circle cx="350" cy="38" r="20" fill="#FFD95C"/></g>
+    <g class="cl1"><path d="M60 46a10 10 0 0 1 2-20 14 14 0 0 1 26-3 11 11 0 0 1 10 23z" fill="#fff"/></g>
+    <g class="cl2"><path d="M230 30a8 8 0 0 1 1-16 11 11 0 0 1 21-2 9 9 0 0 1 8 18z" fill="#fff" opacity=".9"/></g>
+    <g class="bird"><path d="M150 56q6-6 12 0q6-6 12 0" fill="none" stroke="#5A7A8C" stroke-width="2" stroke-linecap="round"/></g>
     <path d="M0 140c60-40 120-40 190-10s140 20 210-14v64H0z" fill="#8FD6A0"/>
     <path d="M0 160c80-28 150-20 220 0s120 10 180-6v26H0z" fill="#6CC584"/>
   </svg>`;

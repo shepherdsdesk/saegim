@@ -1,6 +1,6 @@
 // 새김 — 오프라인용 기본 파일 저장
-const CACHE = 'saegim-v11';
-const SHELL = ['./', 'index.html', 'css/saegim.css', 'css/app.css', 'css/modes.css', 'js/app.js', 'js/core.js', 'js/kids.js', 'js/sound.js', 'vendor/firebase.js', 'manifest.webmanifest', 'icons/icon-192.png'];
+const CACHE = 'saegim-v12';
+const SHELL = ['./', 'index.html', 'css/saegim.css', 'css/app.css', 'css/modes.css', 'js/app.js', 'js/core.js', 'js/kids.js', 'js/sound.js', 'js/tvfx.js', 'vendor/firebase.js', 'manifest.webmanifest', 'icons/icon-192.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', (e) => {

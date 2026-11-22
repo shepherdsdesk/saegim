@@ -5,6 +5,8 @@ import {
 } from './core.js';
 import { qrcode } from '../vendor/qrcode.mjs';
 import { Sound } from './sound.js';
+import * as FX from './tvfx.js';
+import { lambSVG } from './kids.js';
 
 const root = $('#root');
 const H = { settings: null, courses: [], teams: [], sel: null, code: null, room: null, players: [], offs: [], timer: null, adv: null, rates: [], localStart: 0 };
@@ -18,7 +20,7 @@ const CCOL = ['#A8432F', '#2E5D8A', '#8A6519', '#36664E'];
   H.courses = cs.filter((c) => c.published !== false && (c.count || 0) > 0).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
   H.teams = ts.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
   const b = H.settings.battle || {};
-  H.sel = { courses: new Set(H.courses.slice(0, 1).map((c) => c.id)), mode: 'speed', theme: b.theme || '여리고 성벽', teamMode: false, count: b.count || 10, time: b.time || 20, rule: H.settings.rule || '보통', scoring: b.scoring || 'speed' };
+  H.sel = { courses: new Set(H.courses.slice(0, 1).map((c) => c.id)), mode: 'speed', theme: b.theme || '여리고 성벽', teamMode: false, count: b.count || 10, time: b.time || 20, rule: H.settings.rule || '보통', scoring: b.scoring || 'speed', mascot: b.mascot !== false };
   Sound.configure({ sfx: b.sound !== false, bgm: b.bgm !== false, volume: b.volume ?? 0.7 });
   muteButton();
   document.addEventListener('pointerdown', () => Sound.unlock(), { once: true });
@@ -28,7 +30,8 @@ const CCOL = ['#A8432F', '#2E5D8A', '#8A6519', '#36664E'];
   });
 })();
 
-const setBTheme = (t) => { document.body.dataset.btheme = t; };
+function kidFonts() { if (document.getElementById('kidf')) return; const l = document.createElement('link'); l.id = 'kidf'; l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap'; document.head.appendChild(l); }
+const setBTheme = (t) => { if (t === '어린 양 달리기') kidFonts(); if (document.body.dataset.btheme !== t || !document.querySelector('.fx-amb')) FX.ambient(t); document.body.dataset.btheme = t; };
 const head = (right = '') => `<header class="tv-head">${`<span class="brand">${markSVG(Math.round(innerWidth * 0.033))}<span style="display:flex;flex-direction:column;gap:.35vw"><span class="brand-name">${esc(H.settings.appName || '새김')} 말씀 대전</span><span class="brand-sub">INSCRIBE BATTLE</span></span></span>`}${right}</header>`;
 
 /* ───────── 1. 설정 ───────── */
@@ -51,6 +54,7 @@ function setup() {
           <div class="opt-row"><span>제한 시간</span>${seg('time', [10, 15, 20, 30, 45, 60], S.time, (x) => x + '초')}</div>
           <div class="opt-row"><span>정답 규칙</span>${seg('rule', ['엄격', '보통', '느슨'], S.rule)}</div>
           <div class="opt-row"><span>점수</span>${seg('scoring', ['correct', 'speed'], S.scoring, (x) => (x === 'speed' ? '정답 + 속도' : '정답만'))}</div>
+          <div class="opt-row"><span>새김이 응원</span>${seg('mascot', ['켜기', '끄기'], S.mascot ? '켜기' : '끄기')}</div>
         </div>
         ${S.mode === 'relay' && !H.teams.length ? '<p class="tv-credit" style="color:var(--ac)">사랑방 릴레이는 팀이 있어야 합니다. 관리자 화면에서 팀을 만들어 주세요.</p>' : ''}
       </div>
@@ -60,14 +64,14 @@ function setup() {
   $$('[data-c]').forEach((b) => b.onchange = () => { b.checked ? S.courses.add(b.dataset.c) : S.courses.delete(b.dataset.c); });
   $$('[data-seg]').forEach((g) => $$('button', g).forEach((b) => b.onclick = () => {
     const k = g.dataset.seg, v = b.dataset.v;
-    if (k === 'teamMode') S.teamMode = v === '팀전'; else if (k === 'count' || k === 'time') S[k] = Number(v); else S[k] = v;
+    if (k === 'teamMode') S.teamMode = v === '팀전'; else if (k === 'mascot') S.mascot = v === '켜기'; else if (k === 'count' || k === 'time') S[k] = Number(v); else S[k] = v;
     if (S.mode === 'relay') S.teamMode = true;
     setup();
   }));
   $('#mk').onclick = createRoom;
 }
 function themeDesc(t) {
-  return { '여리고 성벽': '정답이 쌓이면 성벽이 무너짐', '다윗과 골리앗': '모두의 정답으로 거인을 쓰러뜨림', '홍해 건너기': '맞힐수록 바다 길을 달려감', '갈멜산 제단': '팀마다 제단을 쌓고 불이 내림', '노아의 방주': '살아남은 사람이 방주에 오름', '아케이드': '네온 게임쇼 분위기' }[t] || '';
+  return { '어린 양 달리기': '어린 양들이 들판을 달려 목자에게', '여리고 성벽': '정답이 쌓이면 성벽이 무너짐', '다윗과 골리앗': '모두의 정답으로 거인을 쓰러뜨림', '홍해 건너기': '맞힐수록 바다 길을 달려감', '갈멜산 제단': '팀마다 제단을 쌓고 불이 내림', '노아의 방주': '살아남은 사람이 방주에 오름', '아케이드': '네온 게임쇼 분위기' }[t] || '';
 }
 
 /* ───────── 2. 방 만들기 ───────── */
@@ -136,7 +140,22 @@ function onPlayers() {
     pg.innerHTML = H.players.slice(0, 40).map((p) => `<div class="person"><i style="background:${(teamOf(p.team) || {}).color || 'var(--ac)'}"></i><span>${esc(p.name)}</span></div>`).join('');
     if (H.room && H.room.teamMode) $('#tsum').innerHTML = H.room.teams.map((t) => `<span style="display:flex;align-items:center;gap:.6vw;white-space:nowrap"><i style="width:.65vw;height:.65vw;border-radius:50%;background:${t.color}"></i>${esc(t.name)} ${H.players.filter((p) => p.team === t.id).length}명</span>`).join('');
   }
-  if (H.view === 'q') { updateAnswered(); maybeEarly(); }
+  if (H.view === 'q') { updateAnswered(); answerPops(); maybeEarly(); }
+}
+// 누가 답을 냈는지 화면 아래에 톡톡 떠오르기 (정답 여부는 숨김)
+function answerPops() {
+  const k = 'q' + H.qi; const box = $('#astream'); if (!box) return;
+  H.players.forEach((p) => {
+    if (!p.ans || p.ans[k] == null || H.seen.has(p.id)) return;
+    H.seen.add(p.id);
+    const c = document.createElement('span'); c.className = 'apop';
+    c.style.setProperty('--c', (teamOf(p.team) || {}).color || 'var(--ac)');
+    c.style.left = (6 + Math.random() * 82) + '%';
+    c.innerHTML = `<i></i>${esc(p.name)}`;
+    box.appendChild(c); setTimeout(() => c.remove(), 2600);
+    Sound.click && Sound.click();
+    const ac = $('#ac'); if (ac) { ac.classList.remove('bump'); void ac.offsetWidth; ac.classList.add('bump'); }
+  });
 }
 
 /* ───────── 3. 문제 만들기 ───────── */
@@ -202,6 +221,10 @@ function relayMap(q) {
 async function ask(qi) {
   clearInterval(H.timer); clearTimeout(H.adv);
   const q = H.questions[qi];
+  H.view = 'intro';
+  if (qi === 0) await FX.countdown((n) => (n === 'go' ? Sound.start() : Sound.tick(false)));
+  else { Sound.click && Sound.click(); await FX.intro(`문제 ${qi + 1}`, `${esc(BATTLE_MODES[H.sel.mode].name)} · ${qi + 1} / ${H.questions.length}`); }
+  H.seen = new Set();
   const patch = { status: 'q', qi, qStart: op.now(), results: {} };
   if (q.kind === 'relay') patch.relay = Object.fromEntries(Object.entries(relayMap(q)).filter(([k]) => !k.includes('#')));
   H.localStart = Date.now(); H.view = 'q'; H.qi = qi;
@@ -211,9 +234,10 @@ async function ask(qi) {
   const dur = H.sel.time * 1000; let lastSec = null;
   H.timer = setInterval(() => {
     const left = Math.max(0, dur - (Date.now() - H.localStart));
-    const sec = Math.ceil(left / 1000); if (left > 0 && sec <= 5 && sec !== lastSec) { lastSec = sec; Sound.tick(sec <= 3); }
-    const t = $('.timer'); if (t) { t.style.setProperty('--deg', (left / dur) * 360 + 'deg'); $('span', t).textContent = Math.ceil(left / 1000); }
-    if (left <= 0) { clearInterval(H.timer); reveal(); } else maybeEarly();
+    const sec = Math.ceil(left / 1000); if (left > 0 && sec <= 5 && sec !== lastSec) { lastSec = sec; Sound.tick(sec <= 3); const tt = $('.timer'); if (tt) { tt.classList.remove('beat'); void tt.offsetWidth; tt.classList.add('beat'); } }
+    const t = $('.timer'); if (t) { t.style.setProperty('--deg', (left / dur) * 360 + 'deg'); $('span', t).textContent = Math.ceil(left / 1000); t.classList.toggle('hurry', left > 0 && sec <= 5); }
+    document.body.classList.toggle('hurry', left > 0 && sec <= 3);
+    if (left <= 0) { clearInterval(H.timer); document.body.classList.remove('hurry'); reveal(); } else maybeEarly();
   }, 200);
 }
 function aliveIds() { return H.players.filter((p) => !H.room || !H.room.alive || H.room.alive[p.id] !== false).map((p) => p.id); }
@@ -233,7 +257,7 @@ function sideHTML(final = false) {
     const ts = r.teams.map((t) => ({ ...t, sc: teamScore(t.id) })).sort((a, b) => b.sc - a.sc); const mx = Math.max(1, ...ts.map((t) => t.sc));
     return `<span class="tv-eyebrow" style="margin-top:2vw">팀 순위</span><div style="display:flex;flex-direction:column;gap:1.1vw;margin-top:1vw">${ts.map((t) => `<div class="team-bar"><div class="tb-h"><span style="font-weight:600;white-space:nowrap">${esc(t.name)}</span><b>${fmt(t.sc)}</b></div><div class="tb"><i style="width:${(t.sc / mx) * 100}%;background:${t.color}"></i></div></div>`).join('')}</div>`;
   })() : '';
-  return `<aside class="side"><span class="tv-eyebrow">개인 순위</span><div style="margin-top:.6vw">${ranked.slice(0, r.teamMode ? 5 : 8).map((p, i) => `<div class="rank-row ${i < 3 ? 'top' : ''} ${r.alive && r.alive[p.id] === false ? 'out' : ''}"><span class="n num">${i + 1}</span><span class="nm">${esc(p.name)}</span><span class="sc">${fmt(p.sc)}</span></div>`).join('') || '<p class="tv-credit">아직 점수가 없습니다</p>'}</div>${teamHTML}
+  return `<aside class="side"><span class="tv-eyebrow">개인 순위</span><div style="margin-top:.6vw">${ranked.slice(0, r.teamMode ? 5 : 8).map((p, i) => `<div class="rank-row ${i < 3 ? 'top' : ''} ${r.alive && r.alive[p.id] === false ? 'out' : ''}" data-id="${p.id}"><span class="n num">${i + 1}</span><span class="nm">${esc(p.name)}</span><span class="sc" data-to="${p.sc}">${fmt(p.sc)}</span></div>`).join('') || '<p class="tv-credit">아직 점수가 없습니다</p>'}</div>${teamHTML}
     <span class="tv-credit" style="margin-top:auto">만든 곳 <b>AI목양지원센터</b></span></aside>`;
 }
 function teamScore(tid) {
@@ -250,11 +274,11 @@ function renderQuestion() {
   const q = H.questions[H.qi];
   let body = '';
   if (q.kind === 'choice') {
-    const disp = q.refChoices ? esc(q.display) : q.words.map((w, i) => (i === q.blankIndex ? '<span class="q-blank">?</span>' : esc(w))).join(' ');
+    const disp = q.refChoices ? esc(q.display) : q.words.map((w, i) => (i === q.blankIndex ? `<span class="q-blank w-in" style="--i:${i}">?</span>` : `<span class="w-in" style="--i:${i}">${esc(w)}</span>`)).join(' ');
     body = `<span class="tv-eyebrow ac">${esc(q.prompt)}</span><p class="q-text ${q.display.length > 90 ? 'small' : ''}">${disp}</p>${q.sub ? `<span class="q-sub">${esc(q.sub)}</span>` : ''}
-      <div class="q-choices">${q.choices.map((c, i) => `<div class="q-choice ${q.refChoices ? 'ref' : ''}" style="background:${CCOL[i]}"><svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="${SHAPES[i]}"/></svg><span>${esc(c)}</span><em></em></div>`).join('')}</div>`;
+      <div class="q-choices">${q.choices.map((c, i) => `<div class="q-choice in ${q.refChoices ? 'ref' : ''}" style="background:${CCOL[i]};--i:${i}"><svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="${SHAPES[i]}"/></svg><span>${esc(c)}</span><em></em></div>`).join('')}</div>`;
   } else if (q.kind === 'order') {
-    body = `<span class="tv-eyebrow ac">말씀 조각을 순서대로</span><h2 class="tv-title" style="font-size:3.4vw;margin:1vw 0 0">${esc(q.ref)}</h2><div class="q-chunks">${q.shuffled.map((i) => `<span class="q-chunk">${esc(q.chunks[i])}</span>`).join('')}</div>`;
+    body = `<span class="tv-eyebrow ac">말씀 조각을 순서대로</span><h2 class="tv-title" style="font-size:3.4vw;margin:1vw 0 0">${esc(q.ref)}</h2><div class="q-chunks">${q.shuffled.map((i, j) => `<span class="q-chunk in" style="--i:${j}">${esc(q.chunks[i])}</span>`).join('')}</div>`;
   } else if (q.kind === 'write') {
     body = `<span class="tv-eyebrow ac">말씀 전체를 적어 주세요</span><h2 class="tv-title" style="font-size:4.6vw;margin:1vw 0 0">${esc(q.display)}</h2>${q.sub ? `<span class="q-sub">${esc(q.sub)}</span>` : ''}`;
   } else {
@@ -263,8 +287,8 @@ function renderQuestion() {
   }
   root.innerHTML = `<div class="tvw">${head(headRight())}<div class="play">
     <div class="play-main">${playTop(`<span class="answered" id="ac"></span><div class="timer" style="--deg:360deg"><span>${H.sel.time}</span></div><button class="tv-btn" id="sk" data-next>바로 정답</button><button class="tv-btn" id="qt">끝내기</button>`)}
-      <div class="q-area fade-in">${body}</div><div class="scene"><div class="sc-inner">${sceneHTML()}</div></div></div>${sideHTML()}</div></div>`;
-  updateAnswered(); fitScene();
+      <div class="q-area fade-in">${body}<div class="astream" id="astream" aria-hidden="true"></div></div><div class="scene"><div class="sc-inner">${sceneHTML()}</div></div></div>${sideHTML()}</div></div>`;
+  updateAnswered(); fitScene(); answerPops();
   $('#sk').onclick = () => { clearInterval(H.timer); reveal(); };
   $('#qt').onclick = () => { if (confirm('대전을 여기서 끝내고 결과를 보여 줄까요?')) { clearInterval(H.timer); finish(); } };
 }
@@ -280,6 +304,7 @@ async function reveal() {
   if (revealing || H.view !== 'q') return; revealing = true; H.view = 'reveal';
   try {
     const q = H.questions[H.qi]; const k = 'q' + H.qi; const dur = H.sel.time * 1000; const r = H.room || {};
+    H.prevScores = { ...(r.scores || {}) }; H.prevTeam = Object.fromEntries((r.teams || []).map((t) => [t.id, teamScore(t.id)])); H.prevAlive = { ...(r.alive || {}) };
     const scores = { ...(r.scores || {}) }; const results = {}; const alive = { ...(r.alive || {}) }; const teamScores = { ...(r.teamScores || {}) };
     const speed = H.sel.scoring === 'speed';
     const ids = aliveIds(); let okCount = 0; const dist = [0, 0, 0, 0];
@@ -313,7 +338,7 @@ async function reveal() {
         if (need && lit >= need) teamScores[t.id] = (teamScores[t.id] || 0) + 1000;
       });
     }
-    const rate = ids.length ? okCount / ids.length : 0; H.rates[H.qi] = rate;
+    const rate = ids.length ? okCount / ids.length : 0; H.prevP = progressRatio(); H.rates[H.qi] = rate;
     const ranks = {}; H.players.map((p) => ({ id: p.id, s: scores[p.id] || 0 })).sort((a, b) => b.s - a.s).forEach((x, i) => (ranks[x.id] = i + 1));
     await DB.update('rooms/' + H.code, { status: 'reveal', results, scores, alive, ranks, teamScores, progress: H.rates.reduce((s, x) => s + (x || 0), 0) / H.questions.length });
     H.room = { ...r, results, scores, alive, ranks, teamScores, status: 'reveal' };
@@ -326,22 +351,36 @@ function renderReveal(q, dist, okCount, n, relayLit) {
   let body = '';
   if (q.kind === 'choice') {
     body = `<span class="tv-eyebrow ac">정답</span><p class="q-text ${q.text.length > 90 ? 'small' : ''}">${esc(q.text)}</p><span class="q-sub">${esc(q.ref)}</span>
-      <div class="q-choices">${q.choices.map((c, i) => `<div class="q-choice ${q.refChoices ? 'ref' : ''} ${i === q.answer ? '' : 'dim'}" style="background:${CCOL[i]}"><svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="${i === q.answer ? 'M20 6 9 17l-5-5' : SHAPES[i]}" ${i === q.answer ? 'fill="none" stroke="#fff" stroke-width="3"' : ''}/></svg><span>${esc(c)}</span><em>${dist[i]}명</em></div>`).join('')}</div>`;
+      <div class="q-choices">${q.choices.map((c, i) => `<div class="q-choice ${q.refChoices ? 'ref' : ''} ${i === q.answer ? 'win' : 'dim'}" style="background:${CCOL[i]}"><svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="${i === q.answer ? 'M20 6 9 17l-5-5' : SHAPES[i]}" ${i === q.answer ? 'fill="none" stroke="#fff" stroke-width="3"' : ''}/></svg><span>${esc(c)}</span><em>${dist[i]}명</em></div>`).join('')}</div>`;
   } else if (q.kind === 'relay') {
     body = `<span class="tv-eyebrow ac">정답</span><h2 class="tv-title" style="font-size:2.6vw;margin:1vw 0 0">${esc(q.ref)}</h2><div class="q-chunks">${q.chunks.map((c, i) => `<span class="q-chunk ${relayLit.has(i) ? 'lit' : ''}">${esc(c)}</span>`).join('')}</div>`;
   } else {
     body = `<span class="tv-eyebrow ac">정답</span><h2 class="tv-title" style="font-size:2.6vw;margin:1vw 0 0">${esc(q.ref)}</h2><p class="q-text ${q.text.length > 90 ? 'small' : ''}">${esc(q.text)}</p>`;
   }
   const best = H.players.filter((p) => H.room.results[p.id] && H.room.results[p.id].ok).sort((a, b) => H.room.results[b.id].gain - H.room.results[a.id].gain).slice(0, 3);
+  const before = FX.flipCapture('.side .rank-row');
   root.innerHTML = `<div class="tvw">${head(headRight())}<div class="play">
     <div class="play-main">${playTop(`<span class="answered">정답 <b>${okCount}</b> / ${n}명</span><button class="tv-btn pr" id="nx" data-next>${last ? '최종 결과' : '다음 문제'} <span id="cd" class="num" style="opacity:.6"></span></button>`)}
-      <div class="q-area fade-in">${body}${best.length ? `<div class="reveal-answer">${icon('check', 22)}가장 빨리: ${best.map((p) => esc(p.name)).join(' · ')}</div>` : ''}</div>
-      <div class="scene"><div class="sc-inner">${sceneHTML()}</div></div></div>${sideHTML()}</div></div>`;
+      <div class="q-area rv fade-in">${body}${best.length ? `<div class="reveal-answer">${icon('check', 22)}가장 빨리: ${best.map((p) => esc(p.name)).join(' · ')}</div>` : ''}</div>
+      <div class="scene"><div class="sc-inner">${sceneHTML(false, true)}</div></div></div>${sideHTML()}${H.sel.mascot ? mascotHTML(n ? okCount / n : 0, okCount) : ''}</div></div>`;
   fitScene();
+  // 움직임: 순위 이동, 점수 올라가기, 정답 터지기
+  FX.flipPlay('.side .rank-row', before);
+  $$('.side .rank-row').forEach((row) => {
+    const id = row.dataset.id; const sc = $('.sc', row); const to = Number(sc.dataset.to) || 0; const from = (H.prevScores || {})[id] || 0;
+    if (to > from) { sc.textContent = fmt(from); setTimeout(() => { FX.countUp(sc, from, to); FX.floatText(sc, '+' + fmt(to - from)); row.classList.add('gain'); }, 450); }
+  });
+  if (okCount > 0) setTimeout(() => FX.burstAt($('.q-choice.win') || $('.reveal-answer') || $('.q-area .tv-title'), okCount / Math.max(1, n) > .6 ? 140 : 80), 250);
+  if (H.sel.theme === '다윗과 골리앗' && okCount > 0) { const g = $('.giant'); if (g) setTimeout(() => g.classList.add('hit'), 900); }
   let sec = 9; const cd = $('#cd'); cd.textContent = sec;
   const tick = () => { sec--; if (cd) cd.textContent = sec > 0 ? sec : ''; if (sec <= 0) { $('#nx') && $('#nx').click(); } else H.adv = setTimeout(tick, 1000); };
   H.adv = setTimeout(tick, 1000);
   $('#nx').onclick = () => { clearTimeout(H.adv); last ? finish() : ask(H.qi + 1); };
+}
+
+function mascotHTML(rate, ok) {
+  const say = ok === 0 ? '앗, 아무도 못 맞혔어요! 다음엔 할 수 있어요' : rate >= .99 ? '와! 모두 정답이에요!' : rate >= .7 ? `${ok}명이나 맞혔어요! 대단해요` : rate >= .4 ? `${ok}명 정답! 조금만 더 힘내요` : `${ok}명 정답! 말씀을 다시 떠올려 봐요`;
+  return `<div class="mascot ${rate >= .7 ? 'cheer' : ok === 0 ? 'sad' : ''}">${lambSVG(Math.round(innerWidth * .07), rate >= .7 ? 'cheer' : ok === 0 ? 'think' : 'happy')}<span class="mb">${esc(say)}</span></div>`;
 }
 
 /* ───────── 6. 마무리 ───────── */
@@ -354,57 +393,79 @@ async function finish() {
   if (r.teamMode) teamWin = r.teams.map((t) => ({ ...t, sc: teamScore(t.id) })).sort((a, b) => b.sc - a.sc)[0];
   await DB.update('rooms/' + H.code, { status: 'end', endedAt: Date.now() });
   DB.add('history', { endedAt: Date.now(), mode: H.sel.mode, modeName: BATTLE_MODES[H.sel.mode].name, theme: H.sel.theme, winner: teamWin ? teamWin.name : (ranked[0] || {}).name || '', players: H.players.length, top: ranked.slice(0, 3).map((p) => ({ name: p.name, score: p.sc })) }).catch(() => {});
-  const P = [ranked[1], ranked[0], ranked[2]]; const hgt = ['7vw', '10vw', '5vw']; const lab = ['2', '1', '3'];
+  const P = [ranked[1], ranked[0], ranked[2]]; const hgt = ['7vw', '10vw', '5vw']; const lab = ['2', '1', '3']; const ord = [2, 3, 1];
+  const winTxt = teamWin ? `${teamWin.name} 우승` : ranked[0] ? `${ranked[0].name} 님 우승` : '수고하셨습니다';
+  const letters = [...winTxt].map((ch, i) => (ch === ' ' ? ' ' : `<span class="wl" style="--i:${i}">${esc(ch)}</span>`)).join('');
   root.innerHTML = `<div class="tvw fade-in">${head(`<span class="tv-credit">만든 곳 <b>AI목양지원센터</b></span>`)}
     <div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:1.6vw">
-      <div style="display:flex;flex-direction:column;gap:.8vw"><span class="tv-eyebrow ac">최종 결과 · ${esc(H.sel.theme)}</span><span class="tv-title" style="font-size:4.4vw">${teamWin ? `${esc(teamWin.name)} 우승` : ranked[0] ? `${esc(ranked[0].name)} 님 우승` : '수고하셨습니다'}</span></div>
+      <div style="display:flex;flex-direction:column;gap:.8vw"><span class="tv-eyebrow ac">최종 결과 · ${esc(H.sel.theme)}</span><span class="tv-title win-title" style="font-size:4.4vw">${letters}</span></div>
       <div style="display:flex;gap:1vw"><button class="tv-btn" id="again">같은 설정으로 다시</button><button class="tv-btn pr" id="new" data-next>새 대전</button></div></div>
     <div class="scene" style="flex:none;height:11vw"><div class="sc-inner">${sceneHTML(true)}</div></div>
-    <div class="podium">${P.map((p, i) => p ? `<div><span class="who">${esc(p.name)}</span><span class="pts">${fmt(p.sc)}점</span><div class="blk" style="height:${hgt[i]}">${lab[i]}</div></div>` : '<div></div>').join('')}</div></div>`;
+    <div class="podium">${P.map((p, i) => p ? `<div class="pd pd${lab[i]}" style="--o:${ord[i]}">${i === 1 ? `<span class="crown" aria-hidden="true">${crownSVG()}</span>` : ''}<span class="who">${esc(p.name)}</span><span class="pts">${fmt(p.sc)}점</span><div class="blk" style="height:${hgt[i]}">${lab[i]}</div></div>` : '<div></div>').join('')}</div>
+    <div class="spot" aria-hidden="true"></div>${H.sel.mascot ? `<div class="mascot final cheer">${lambSVG(Math.round(innerWidth * .08), 'cheer')}<span class="mb">모두 정말 잘했어요!</span></div>` : ''}</div>`;
   fitScene();
+  setTimeout(() => { FX.burstAt($('.pd1 .blk'), 160); FX.rain(5); }, 2300);
   $('#new').onclick = () => { H.offs.forEach((f) => f()); H.offs = []; setup(); };
   $('#again').onclick = () => { H.offs.forEach((f) => f()); H.offs = []; createRoom(); };
 }
 
 /* ───────── 장면 ───────── */
+function crownSVG() { return '<svg viewBox="0 0 64 44" width="100%" height="100%"><path d="M6 40 2 10l16 12L32 2l14 20 16-12-4 30z" fill="#FFC83D" stroke="#E09A00" stroke-width="2.5" stroke-linejoin="round"/><circle cx="32" cy="26" r="4" fill="#F2545B"/><circle cx="17" cy="30" r="3" fill="#4DABF7"/><circle cx="47" cy="30" r="3" fill="#4CAF6A"/></svg>'; }
 function progressRatio() { const n = (H.questions || []).length || 1; return Math.min(1, H.rates.reduce((s, x) => s + (x || 0), 0) / n); }
-function sceneHTML(final = false) {
+function sceneHTML(final = false, animate = false) {
   const t = H.sel.theme; const p = final ? Math.max(progressRatio(), 0.999) : progressRatio();
+  const pp = animate && H.prevP != null ? Math.min(H.prevP, p) : p; // 이전 상태에서 지금 상태로 움직임
   const r = H.room || {}; const sc = r.scores || {};
   const max = Math.max(1, (H.questions || []).length * 1000);
-  const units = r.teamMode ? (r.teams || []).map((x) => ({ name: x.name, color: x.color, sc: teamScore(x.id) })) : H.players.map((x, i) => ({ name: x.name, color: ['#C0563F', '#4F86C6', '#5BA37A', '#C9973B', '#8A6BBE', '#3E9C9C', '#C2678F', '#6B7A8F'][i % 8], sc: sc[x.id] || 0 })).sort((a, b) => b.sc - a.sc).slice(0, 8);
+  const PC = ['#C0563F', '#4F86C6', '#5BA37A', '#C9973B', '#8A6BBE', '#3E9C9C', '#C2678F', '#6B7A8F'];
+  const units = r.teamMode
+    ? (r.teams || []).map((x) => ({ id: x.id, name: x.name, color: x.color, sc: teamScore(x.id), was: animate ? ((H.prevTeam || {})[x.id] ?? teamScore(x.id)) : teamScore(x.id) }))
+    : H.players.map((x, i) => ({ id: x.id, name: x.name, color: PC[i % 8], sc: sc[x.id] || 0, was: animate ? ((H.prevScores || {})[x.id] ?? (sc[x.id] || 0)) : (sc[x.id] || 0) })).sort((a, b) => b.sc - a.sc).slice(0, 8);
+  const R = (a) => (Math.sin(a * 12.9898) * 43758.5453) % 1;
   if (t === '여리고 성벽') {
     const shades = ['#A6774A', '#9A6C41', '#B08152', '#916639']; let rows = '';
+    const goneAt = (rr, c, pv) => { const h = (rr * 31 + c * 17 + rr * c * 7) % 100; return h + (6 - rr) * 14 > 175 - pv * 100 * 1.3 - (final ? 60 : 0); };
     for (let rr = 0; rr < 7; rr++) {
       const n = rr % 2 ? 13 : 14; let b = '';
-      for (let c = 0; c < n; c++) { const h = (rr * 31 + c * 17 + rr * c * 7) % 100; const gone = h + (6 - rr) * 14 > 175 - p * 100 * 1.3 - (final ? 60 : 0); const tilt = !gone && (rr * 5 + c * 3) % 7 === 0 && p > 0.3; b += `<i class="brick ${gone ? 'gone' : ''} ${tilt ? 'tilt' : ''}" style="background:${shades[(rr + c * 3) % 4]}"></i>`; }
+      for (let c = 0; c < n; c++) {
+        const now = goneAt(rr, c, p); const was = goneAt(rr, c, pp);
+        const tilt = !now && (rr * 5 + c * 3) % 7 === 0 && p > 0.3;
+        const cls = was ? 'gone' : now ? 'falling' : tilt ? 'tilt' : '';
+        b += `<i class="brick ${cls}" style="background:${shades[(rr + c * 3) % 4]};--d:${(Math.abs(R(rr * 20 + c)) * 0.9).toFixed(2)}s;--rx:${(Math.abs(R(c + rr)) * 60 - 30).toFixed(0)}deg"></i>`;
+      }
       rows += `<div class="row ${rr % 2 ? 'off' : ''}">${b}</div>`;
     }
     return `<div class="sc-cap"><span>성벽 무너짐 <b class="num">${Math.round(p * 100)}%</b></span><span>${final ? '성이 무너졌습니다' : `일곱째 날까지 ${Math.max(0, (H.questions || []).length - (H.qi ?? 0) - 1)}문제`}</span></div>
-      <div class="jericho"><div class="tower"></div><div class="wall">${rows}</div><div class="tower"></div></div><div class="ground" style="background:#C29C68"></div>`;
+      <div class="jericho ${p > pp ? 'quake' : ''}"><div class="tower"><i class="flag"></i><i class="torch"></i></div><div class="wall">${rows}</div><div class="tower"><i class="flag"></i><i class="torch"></i></div></div><div class="ground" style="background:#C29C68"></div>`;
   }
   if (t === '다윗과 골리앗') {
-    const stones = Math.min(48, Math.round(p * 48)); const fallen = p >= 0.999 || final;
-    return `<div class="goliath"><div class="hp"><div class="sc-cap" style="padding:0"><span>거인의 힘</span><b class="num">${Math.round((1 - p) * 100)}%</b></div><div class="bar"><i style="width:${(1 - p) * 100}%"></i></div>
-      <div class="stones" style="margin-top:1vw">${Array.from({ length: stones }, () => '<i></i>').join('')}</div><span class="tv-credit">모두의 정답이 물맷돌이 됩니다</span></div>
-      <div class="giant ${fallen ? 'fallen' : ''}"><i class="spear"></i><i class="helm"></i><i class="head"></i><i class="body"></i><i class="legs"></i></div></div><div class="ground" style="background:#5E6B45"></div>`;
+    const stones = Math.min(48, Math.round(p * 48)); const prevStones = Math.min(48, Math.round(pp * 48)); const fallen = p >= 0.999 || final;
+    return `<div class="goliath"><div class="hp"><div class="sc-cap" style="padding:0"><span>거인의 힘</span><b class="num">${Math.round((1 - p) * 100)}%</b></div><div class="bar"><i class="grow" style="width:${(1 - p) * 100}%;--from:${(1 - pp) * 100}%"></i></div>
+      <div class="stones" style="margin-top:1vw">${Array.from({ length: stones }, (_, i) => `<i class="${i >= prevStones ? 'drop' : ''}" style="--i:${i - prevStones}"></i>`).join('')}</div><span class="tv-credit">모두의 정답이 물맷돌이 됩니다</span></div>
+      ${p > pp ? '<i class="sling-stone" aria-hidden="true"></i>' : ''}
+      <div class="giant ${fallen ? 'fallen' : 'idle'}"><i class="spear"></i><i class="helm"></i><i class="head"><b class="eye l"></b><b class="eye r"></b></i><i class="body"></i><i class="legs"></i></div></div><div class="ground" style="background:#5E6B45"></div>`;
   }
   if (t === '홍해 건너기') {
-    return `<div class="sc-cap"><span>갈라진 바다 길</span><span>건너편까지 먼저 가는 쪽이 승리</span></div><div class="redsea">${units.map((u) => `<div class="lane"><span class="ln">${esc(u.name)}</span><div class="track"><i class="runner" style="left:${4 + Math.min(1, u.sc / max) * 88}%;background:${u.color}"></i></div></div>`).join('')}</div>`;
+    return `<div class="sc-cap"><span>갈라진 바다 길</span><span>건너편까지 먼저 가는 쪽이 승리</span></div><div class="redsea"><i class="sea-wall top"></i>${units.map((u) => `<div class="lane"><span class="ln">${esc(u.name)}</span><div class="track"><i class="runner go" style="left:${4 + Math.min(1, u.sc / max) * 88}%;--from:${4 + Math.min(1, u.was / max) * 88}%;background:${u.color}"></i></div></div>`).join('')}<i class="sea-wall bot"></i></div>`;
+  }
+  if (t === '어린 양 달리기') {
+    return `<div class="sc-cap"><span>초록 들판 달리기</span><span>목자에게 먼저 가는 양이 승리</span></div>
+      <div class="meadow"><i class="sun"></i><i class="cloud c1"></i><i class="cloud c2"></i>${units.map((u, i) => { const to = 3 + Math.min(1, u.sc / max) * 84; const from = 3 + Math.min(1, u.was / max) * 84; return `<div class="mlane"><span class="ln">${esc(u.name)}</span><div class="mtrack"><span class="mlamb ${to > from ? 'run' : ''}" style="left:${to}%;--from:${from}%;--c:${u.color};--d:${(i * 0.13).toFixed(2)}s">${lambSVG(Math.round(innerWidth * .026), to > from ? 'cheer' : 'happy')}<i class="scarf"></i></span><i class="goal"></i></div></div>`; }).join('')}</div>`;
   }
   if (t === '갈멜산 제단') {
     const mx = Math.max(1, ...units.map((u) => u.sc)); const lead = units.slice().sort((a, b) => b.sc - a.sc)[0];
-    return `<div class="carmel">${units.slice(0, 6).map((u) => { const n = Math.round((u.sc / mx) * 12); return `<div class="altar">${final && u === lead ? '<i class="fire"></i>' : ''}<div class="stack">${Array.from({ length: n }, (_, i) => `<i style="background:${u.color};opacity:${0.55 + (i % 3) * 0.15}"></i>`).join('')}</div><span class="an">${esc(u.name)}</span></div>`; }).join('')}</div><div class="ground" style="background:#5A4636;margin-top:.6vw"></div>`;
+    return `<div class="carmel">${units.slice(0, 6).map((u) => { const n = Math.round((u.sc / mx) * 12); const n0 = Math.min(n, Math.round((u.was / mx) * 12)); return `<div class="altar">${final && u === lead ? '<i class="fire"></i>' : '<i class="smoke"></i>'}<div class="stack">${Array.from({ length: n }, (_, i) => `<i class="${i >= n0 ? 'drop' : ''}" style="background:${u.color};opacity:${0.55 + (i % 3) * 0.15};--i:${i - n0}"></i>`).join('')}</div><span class="an">${esc(u.name)}</span></div>`; }).join('')}</div><div class="ground" style="background:#5A4636;margin-top:.6vw"></div>`;
   }
   if (t === '노아의 방주') {
-    const alive = r.alive || {}; const on = H.players.filter((x) => alive[x.id] !== false); const off = H.players.filter((x) => alive[x.id] === false);
+    const alive = r.alive || {}; const was = animate ? (H.prevAlive || {}) : alive;
+    const on = H.players.filter((x) => alive[x.id] !== false); const off = H.players.filter((x) => alive[x.id] === false);
     return `<div class="sc-cap"><span>방주에 오른 사람 <b class="num">${on.length}</b></span><span>${off.length ? `물 밖 ${off.length}명` : ''}</span></div>
-      <div class="ark"><div class="house"></div><div class="hull">${on.slice(0, 48).map((x) => `<i title="${esc(x.name)}" style="background:${(teamOf(x.team) || {}).color || 'rgba(255,255,255,.35)'}"></i>`).join('')}</div></div><div class="water"></div>
-      ${off.length ? `<div class="out-list">${off.slice(0, 20).map((x) => `<span>${esc(x.name)}</span>`).join('')}</div>` : ''}`;
+      <div class="ark bob"><div class="house"><i class="dove"></i></div><div class="hull">${on.slice(0, 48).map((x) => `<i title="${esc(x.name)}" style="background:${(teamOf(x.team) || {}).color || 'rgba(255,255,255,.35)'}"></i>`).join('')}</div></div><div class="water wave"></div>
+      ${off.length ? `<div class="out-list">${off.slice(0, 20).map((x) => `<span class="${was[x.id] !== false ? 'sink' : ''}">${esc(x.name)}</span>`).join('')}</div>` : ''}`;
   }
   // 아케이드
   const mx = Math.max(1, ...units.map((u) => u.sc));
-  return `<div class="arcade">${units.map((u) => `<div class="col" style="color:${u.color}"><span style="color:var(--ink);font-family:var(--f-head)" class="num">${fmt(u.sc)}</span><i style="height:${4 + (u.sc / mx) * 80}%;background:${u.color}"></i><span style="color:var(--sub)">${esc(u.name)}</span></div>`).join('')}</div>`;
+  return `<div class="arcade">${units.map((u) => `<div class="col" style="color:${u.color}"><span style="color:var(--ink);font-family:var(--f-head)" class="num">${fmt(u.sc)}</span><i class="grow-h" style="height:${4 + (u.sc / mx) * 80}%;--from:${4 + (Math.min(u.was, u.sc) / mx) * 80}%;background:${u.color}"></i><span style="color:var(--sub)">${esc(u.name)}</span></div>`).join('')}</div>`;
 }
 
 function fitScene() {

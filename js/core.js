@@ -469,7 +469,7 @@ export const BATTLE_MODES = {
   survival: { name: '서바이벌', desc: '틀리면 탈락' },
   relay: { name: '사랑방 릴레이', desc: '팀원이 나눠 이어 쓰기' }
 };
-export const BATTLE_THEMES = ['여리고 성벽', '다윗과 골리앗', '홍해 건너기', '갈멜산 제단', '노아의 방주', '아케이드'];
+export const BATTLE_THEMES = ['어린 양 달리기', '여리고 성벽', '다윗과 골리앗', '홍해 건너기', '갈멜산 제단', '노아의 방주', '아케이드'];
 export const TEAM_COLORS = ['#C0563F', '#4F86C6', '#5BA37A', '#C9973B', '#8A6BBE', '#3E9C9C', '#C2678F', '#6B7A8F'];
 
 export function registerSW() {
