@@ -3,7 +3,9 @@
 
 /* ───────── 어린 양 '새김이' ───────── */
 export function lambSVG(size = 96, mood = 'happy') {
-  const mouth = mood === 'wow'
+  const mouth = mood === 'oops'
+    ? '<path d="M54 76 q6 -5 12 0" fill="none" stroke="#6B3B2E" stroke-width="3" stroke-linecap="round"/><path d="M84 46 q4 6 0 9 q-4 -3 0 -9z" fill="#8FD3FF"/>'
+    : mood === 'wow'
     ? '<ellipse cx="60" cy="74" rx="4.5" ry="5.5" fill="#6B3B2E"/>'
     : mood === 'think'
       ? '<path d="M55 74 h10" stroke="#6B3B2E" stroke-width="3" stroke-linecap="round"/>'
@@ -133,5 +135,20 @@ export function sceneSVG() {
     <g class="bird"><path d="M150 56q6-6 12 0q6-6 12 0" fill="none" stroke="#5A7A8C" stroke-width="2" stroke-linecap="round"/></g>
     <path d="M0 140c60-40 120-40 190-10s140 20 210-14v64H0z" fill="#8FD6A0"/>
     <path d="M0 160c80-28 150-20 220 0s120 10 180-6v26H0z" fill="#6CC584"/>
+  </svg>`;
+}
+
+/* ───────── 등불 (연속 기록) ───────── */
+export function bigLampSVG(level = 0) {
+  const glow = ['#FFB020', '#FF8A1F', '#FF5A5F', '#B57BFF'][Math.min(3, level)];
+  return `<svg class="biglamp" viewBox="0 0 160 200" aria-hidden="true">
+    <defs><radialGradient id="lg" cx="50%" cy="45%" r="50%"><stop offset="0" stop-color="${glow}" stop-opacity=".55"/><stop offset="1" stop-color="${glow}" stop-opacity="0"/></radialGradient>
+    <linearGradient id="fl" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#FF7A1A"/><stop offset=".6" stop-color="#FFC23D"/><stop offset="1" stop-color="#FFF2A8"/></linearGradient></defs>
+    <circle class="halo" cx="80" cy="84" r="78" fill="url(#lg)"/>
+    <path d="M38 176h84" stroke="#8C5A2B" stroke-width="8" stroke-linecap="round"/>
+    <path d="M50 172 42 112c-2-16 78-16 76 0l-8 60z" fill="#E8B66A" stroke="#8C5A2B" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M52 124h56" stroke="#C48A3E" stroke-width="4" stroke-linecap="round"/>
+    <path d="M80 106v-8" stroke="#5A3D22" stroke-width="4" stroke-linecap="round"/>
+    <g class="flame"><path d="M80 24c18 22 22 40 14 56-4 9-24 10-28 0-8-16-4-34 14-56z" fill="url(#fl)"/><path d="M80 52c8 10 9 18 5 26-2 4-9 4-11 0-4-8-2-16 6-26z" fill="#FFF7D6"/></g>
   </svg>`;
 }

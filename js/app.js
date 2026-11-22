@@ -7,7 +7,7 @@ import {
 } from './core.js';
 import { Sound } from './sound.js';
 import * as M from './motion.js';
-import { lambSVG, callName, starsOf, starsHTML, stickerSVG, stickerName, STICKER_COUNT, PLACES, PLACE_SIZE, placeOf, badgeSVG, levelOf, exploreTitle, challengeTitle, confetti, decoSVG, PLAY_DECO, EXPLORE_DECO, UNIT_COLORS, sceneSVG } from './kids.js';
+import { lambSVG, callName, starsOf, starsHTML, stickerSVG, stickerName, STICKER_COUNT, PLACES, PLACE_SIZE, placeOf, badgeSVG, bigLampSVG, levelOf, exploreTitle, challengeTitle, confetti, decoSVG, PLAY_DECO, EXPLORE_DECO, UNIT_COLORS, sceneSVG } from './kids.js';
 
 const root = $('#root');
 const S = { mode: 'adult', settings: null, user: null, prog: null, courses: [], verses: {}, course: null, logo: null, uid: null, installEvt: null };
@@ -123,6 +123,7 @@ function route() {
   const h = location.hash.replace(/^#/, '');
   const [page, arg] = h.split('/');
   if (page === 'battle') return viewBattle(arg);
+  buddyHide();
   if (!S.user) { S.mode = 'adult'; applyMode('adult'); return viewLogin(); }
   if (page === 'learn' && arg) return viewLearn(arg);
   if (page === 'review') return viewReview();
@@ -163,10 +164,13 @@ function currentStreak() {
 }
 async function touchDay(xp = 0) {
   const p = S.prog; const t = today();
-  let streak = p.streak || 0;
-  if (p.lastDay !== t) streak = p.lastDay === addDays(t, -1) ? streak + 1 : 1;
+  let streak = p.streak || 0; const before = currentStreak();
+  const newDay = p.lastDay !== t;
+  if (newDay) streak = p.lastDay === addDays(t, -1) ? streak + 1 : 1;
   p.streak = streak; p.lastDay = t; p.xp = (p.xp || 0) + xp;
-  await saveProg({ streak, lastDay: t, xp: op.inc(xp), name: S.user.name, team: S.user.team || null, club: clubOf(S.user), updatedAt: Date.now() });
+  p.days = { ...(p.days || {}), [t]: true };
+  if (newDay) S.pendingStreak = { from: before, to: streak };
+  await saveProg({ streak, lastDay: t, days: { [t]: true }, xp: op.inc(xp), name: S.user.name, team: S.user.team || null, club: clubOf(S.user), updatedAt: Date.now() });
   const club = clubOf(S.user);
   if (club && !S.preview) DB.set('boards/' + club, { [S.user.code]: { n: S.user.name, xp: p.xp } }).catch(() => {});
 }
@@ -519,7 +523,53 @@ const STAGE_W = { read: 0, order: 15, blank: 25, chosung: 25, full: 35 };
 const STAGE_NAME_ADULT = { read: '읽고 듣기', order: '순서 맞추기', blank: '빈칸 채우기', chosung: '초성 보고 쓰기', full: '통째로 쓰기' };
 const STAGE_NAME_PLAY = { read: '듣고 따라 읽기', order: '말씀 퍼즐', blank: '빈칸 골라 넣기', chosung: '초성 보고 쓰기', full: '통째로 쓰기' };
 const STAGE_NAME = new Proxy({}, { get: (t, k) => (S.mode === 'play' ? STAGE_NAME_PLAY : STAGE_NAME_ADULT)[k], ownKeys: () => Reflect.ownKeys(STAGE_NAME_ADULT), getOwnPropertyDescriptor: (t, k) => ({ enumerable: true, configurable: true, value: STAGE_NAME_ADULT[k] }) });
-const coach = (t, mood = 'happy') => `<div class="coach">${lambSVG(52, mood)}<p class="bubble">${t}</p></div>`;
+const coach = (t) => `<div class="coach nolamb"><p class="bubble">${t}</p></div>`;
+/* ───────── 새김이 친구: 학습 중 함께 반응 ───────── */
+const buddyOn = () => S.mode === 'play' || S.mode === 'explore';
+const PRAISE = ['잘했어!', '맞았어!', '좋아!', '멋져!', '바로 그거야!'];
+let buddyT = 0;
+function buddyShow() {
+  if (!buddyOn()) return buddyHide();
+  let b = $('#buddy');
+  if (!b) { b = document.createElement('div'); b.id = 'buddy'; b.className = 'buddy idle'; b.innerHTML = `<span class="bd-say"></span><span class="bd-body">${lambSVG(68, 'happy')}</span>`; document.body.appendChild(b); requestAnimationFrame(() => b.classList.add('in')); }
+}
+function buddyHide() { const b = $('#buddy'); if (b) b.remove(); }
+function buddyReact(mood, text = '', ms = 1400) {
+  const b = $('#buddy'); if (!b) return;
+  clearTimeout(buddyT);
+  $('.bd-body', b).innerHTML = lambSVG(68, mood === 'combo' ? 'cheer' : mood);
+  b.className = 'buddy in ' + mood; void b.offsetWidth;
+  const say = $('.bd-say', b); say.textContent = text; say.classList.toggle('show', !!text);
+  buddyT = setTimeout(() => { b.className = 'buddy in idle'; $('.bd-body', b).innerHTML = lambSVG(68, 'happy'); say.classList.remove('show'); }, ms);
+}
+/* ───────── 등불 축하 (그날 첫 암송) ───────── */
+const MILESTONES = [3, 7, 14, 30, 50, 100, 200, 365];
+function showStreak(done) {
+  const st = S.pendingStreak; S.pendingStreak = null;
+  if (!st || S.preview) return done();
+  const n = st.to; const mile = MILESTONES.includes(n); const lv = n >= 100 ? 3 : n >= 30 ? 2 : n >= 7 ? 1 : 0;
+  const days = S.prog.days || {}; const t = today();
+  const week = Array.from({ length: 7 }, (_, i) => addDays(t, i - 6));
+  const wd = ['일', '월', '화', '수', '목', '금', '토'];
+  const lamp = S.mode === 'play' || S.mode === 'explore';
+  const ov = document.createElement('div'); ov.className = 'streak-ov' + (mile ? ' mile' : '');
+  ov.innerHTML = `<div class="so-in">
+    <div class="so-art">${lamp ? bigLampSVG(lv) : `<span class="so-flame">${icon('flame', 96)}</span>`}</div>
+    <div class="so-num"><b class="num" id="sn">${st.from}</b></div>
+    <p class="so-t head">${mile ? (lamp ? `등불 ${n}일 축하해!` : `${n}일 연속 달성!`) : (lamp ? (n === 1 ? '오늘 등불을 켰어!' : `등불이 ${n}일째 타고 있어!`) : (n === 1 ? '오늘도 말씀을 새겼습니다' : `${n}일 연속 새기셨습니다`))}</p>
+    <p class="so-s">${mile ? (lamp ? '정말 대단해! 계속 켜 두자' : '꾸준함이 가장 큰 힘입니다') : (lamp ? '내일도 와서 등불을 지켜 줘' : '내일도 이어 가 보세요')}</p>
+    <div class="so-week">${week.map((d, i) => `<span class="${days[d] ? 'on' : ''} ${d === t ? 'today' : ''}" style="--i:${i}"><i>${days[d] ? icon('check', 14) : ''}</i><em>${wd[new Date(d + 'T00:00:00').getDay()]}</em></span>`).join('')}</div>
+    <button class="btn pr block" id="so-ok">${lamp ? '계속하기' : '계속'}</button></div>`;
+  document.body.appendChild(ov);
+  setTimeout(() => { const el = $('#sn'); if (el) { el.textContent = n; el.classList.add('bump'); } fx('correct'); }, 900);
+  if (mile) setTimeout(() => { confetti(90); fx('fanfare'); }, 1100);
+  $('#so-ok').onclick = () => { ov.classList.add('out'); setTimeout(() => { ov.remove(); done(); }, 250); };
+}
+// 결과 화면의 단추를 누르면 먼저 등불 축하를 보여 주고 이어서 이동
+function guardStreak(sels) {
+  if (!S.pendingStreak) return;
+  sels.forEach((sel) => { const b = $(sel); if (!b) return; const f = b.onclick; b.onclick = (e) => { if (S.pendingStreak) { e && e.preventDefault && e.preventDefault(); showStreak(() => f && f(e)); } else f && f(e); }; });
+}
 function finalScore(sc) {
   let w = 0, t = 0;
   Object.entries(sc).forEach(([k, v]) => { const ww = STAGE_W[k] ?? 0; w += ww; t += ww * v; });
@@ -555,6 +605,7 @@ async function viewLearn(vid, focus = false) {
       <footer class="learn-foot ${foot.one ? 'one' : ''}">${foot.html}</footer></div>`;
     if (si !== lastSi) { M.stagger('.board .w, .read-verse .rw, .pool .tile'); const st = $$('.steps i')[si - 1]; if (st && si > lastSi) st.classList.add('pop'); }
     M.stagger('.choices .choice', document, 60);
+    buddyShow(); const inp = $('.learn-body input, .learn-body textarea'); if (inp) inp.addEventListener('input', () => { if (!$('#buddy.think')) buddyReact('think', '', 1600); }, { once: true });
     lastSi = si;
     $('#xq').onclick = async () => { if (si === 0 || (await confirmLeave())) go('#home'); };
     const bk = $('#bk'); if (bk) bk.onclick = () => { si--; delete sc[stages[si]]; runStage(); };
@@ -562,12 +613,13 @@ async function viewLearn(vid, focus = false) {
   const done = (k, score) => {
     sc[k] = Math.max(0, Math.min(100, Math.round(score))); si++;
     if (si >= stages.length) return finish();
+    if (k !== 'read') buddyReact('cheer', kid() ? '다음 단계로 가자!' : '', 1500);
     if (k !== 'read') M.cheer(kid() ? (sc[k] >= 90 ? '최고야!' : sc[k] >= 70 ? '잘했어!' : '끝까지 했어!') : `${STAGE_NAME[k]} 완료`, `${sc[k]}점`);
     runStage();
   };
   // 맞힌 자리 반짝 + 연속 정답
-  const hit = (el) => { combo++; M.sparkle(el); if (combo >= 3) M.floatUp(el, `${combo}연속!`, 'combo'); };
-  const miss_ = () => { combo = 0; };
+  const hit = (el) => { combo++; M.sparkle(el); if (combo >= 3) { M.floatUp(el, `${combo}연속!`, 'combo'); buddyReact('combo', `${combo}연속!`); } else buddyReact('cheer', PRAISE[Math.floor(Math.random() * PRAISE.length)]); };
+  const miss_ = (wrong = true) => { combo = 0; if (wrong) buddyReact('oops', '괜찮아, 다시 해 보자', 1600); };
 
   function runStage() {
     const k = stages[si];
@@ -593,10 +645,10 @@ async function viewLearn(vid, focus = false) {
         $('#ck').onclick = () => {
           tries++;
           if (placed.every((x, j) => x === j)) {
-            fx('correct'); $('#bd').classList.add('solved'); M.sparkle($('#bd'), kid() ? 40 : 20); $('#ck').disabled = true;
+            fx('correct'); buddyReact('combo', '퍼즐 완성!', 1600); $('#bd').classList.add('solved'); M.sparkle($('#bd'), kid() ? 40 : 20); $('#ck').disabled = true;
             setTimeout(() => done('order', Math.max(40, 100 - 30 * (tries - 1))), 750);
           }
-          else { fx('wrong'); $('#bd').classList.add('shake', 'wrongfl'); toast(kid() ? '순서를 다시 볼까?' : '순서를 다시 확인해 보세요'); setTimeout(() => { placed.length = 0; draw(); }, 700); }
+          else { fx('wrong'); miss_(); $('#bd').classList.add('shake', 'wrongfl'); toast(kid() ? '순서를 다시 볼까?' : '순서를 다시 확인해 보세요'); setTimeout(() => { placed.length = 0; draw(); }, 700); }
         };
       };
       draw();
@@ -614,7 +666,7 @@ async function viewLearn(vid, focus = false) {
           frame(`<p class="hint">빈칸에 들어갈 말을 골라 보세요. <span class="num">(${bi + 1}/${blanks.length})</span></p><div class="board">${board}</div>
             <div class="choices">${opts.map((o) => `<button class="choice" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div>`, { one: true, html: `<span class="muted small" style="text-align:center">${msg || '&nbsp;'}</span>` });
           $$('.choice').forEach((b) => b.onclick = () => {
-            if (b.dataset.o === norm(ws[cur])) { fx('correct'); b.classList.add('ok'); if (!miss) hit(b); else miss_(); $$('.choice').forEach((x) => x !== b && x.classList.add('fade')); setTimeout(() => after(true), 420); }
+            if (b.dataset.o === norm(ws[cur])) { fx('correct'); b.classList.add('ok'); if (!miss) hit(b); else { combo = 0; buddyReact('happy', '찾았다!'); } $$('.choice').forEach((x) => x !== b && x.classList.add('fade')); setTimeout(() => after(true), 420); }
             else { fx('wrong'); miss_(); miss++; b.classList.add('no'); b.disabled = true; }
           });
         } else {
@@ -625,7 +677,7 @@ async function viewLearn(vid, focus = false) {
           { html: `<button class="btn" id="hint">힌트</button><button class="btn pr" id="ck">확인</button>` });
           const inp = $('#bi'); inp.focus();
           const check = () => {
-            if (gradeWord(inp.value, ws[cur], rule)) { const li = inp.parentElement; li.classList.add('okfl'); if (!miss) hit(li); else miss_(); setTimeout(() => after(true), 260); }
+            if (gradeWord(inp.value, ws[cur], rule)) { const li = inp.parentElement; li.classList.add('okfl'); if (!miss) hit(li); else { combo = 0; buddyReact('happy', '찾았다!'); } setTimeout(() => after(true), 260); }
             else { miss_(); miss++; if (miss >= 3) { toast(`정답: ${ws[cur]}`); after(false); return; } inp.parentElement.classList.add('shake'); setTimeout(() => inp.parentElement.classList.remove('shake'), 500); $('#vm').textContent = '다시 한 번 해 보세요'; }
           };
           $('#ck').onclick = check; inp.onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) check(); };
@@ -647,7 +699,7 @@ async function viewLearn(vid, focus = false) {
         const inp = $('#ci'); inp.focus();
         const adv = (pts) => { got[wi] = pts; if (pts < 1) weak.add(wi); wi++; miss = 0; wi >= ws.length ? done('chosung', (got.reduce((a, b) => a + b, 0) / ws.length) * 100) : draw(); };
         const check = () => {
-          if (gradeWord(inp.value, ws[wi], rule)) { const li = inp.parentElement; li.classList.add('okfl'); if (!miss) hit(li); else miss_(); setTimeout(() => adv(miss === 0 ? 1 : 0.5), 200); }
+          if (gradeWord(inp.value, ws[wi], rule)) { const li = inp.parentElement; li.classList.add('okfl'); if (!miss) hit(li); else { combo = 0; buddyReact('happy', '찾았다!'); } setTimeout(() => adv(miss === 0 ? 1 : 0.5), 200); }
           else { miss_(); miss++; if (miss >= 2) { toast(`정답: ${ws[wi]}`); adv(0); } else { inp.parentElement.classList.add('shake'); setTimeout(() => inp.parentElement.classList.remove('shake'), 500); $('#vm').textContent = '한 번 더 생각해 보세요'; } }
         };
         $('#ck').onclick = check; inp.onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) check(); };
@@ -702,15 +754,18 @@ async function viewLearn(vid, focus = false) {
       ${weakArr.length ? `<button class="btn" id="again">약한 부분 다시</button>` : ''}
       <button class="btn pr" id="sv">${nextVerse() ? '다음 말씀' : '저장하기'}</button></footer></div>`;
     const saveNote = async () => { const t = $('#nt').value.trim(); if (t && t !== S.prog.notes[v.id]) { S.prog.notes[v.id] = t; await saveProg({ notes: { [v.id]: t } }); } };
+    buddyHide();
     M.countUp($('#sb'), total, 1000); setTimeout(() => { if (total >= 80) { M.sparkle($('#sb'), 24); fx('fanfare'); } }, 1000);
     $('#hm').onclick = async () => { await saveNote(); go('#home'); };
     const ag = $('#again'); if (ag) ag.onclick = async () => { await saveNote(); viewLearn(v.id, true); };
     $('#sv').onclick = async () => { await saveNote(); const n = nextVerse(); go(n ? '#learn/' + n.id : '#home'); };
+    guardStreak(['#hm', '#again', '#sv']);
   }
   runStage();
 }
 // 놀이 · 탐험 · 도전 결과 화면
 function finishKid({ v, total, xp, lvBefore, first, weakArr, sc, stages, ws, focus }) {
+  buddyHide();
   const L = levelOf(S.prog.xp || 0); const up = L.lv > lvBefore;
   const vs = S.verses[v.courseId] || []; const idx = Math.max(0, vs.findIndex((x) => x.id === v.id));
   const play = S.mode === 'play';
@@ -747,6 +802,7 @@ function finishKid({ v, total, xp, lvBefore, first, weakArr, sc, stages, ws, foc
   $('#hm').onclick = async () => { await saveNote(); go('#home'); };
   const ag = $('#again'); if (ag) ag.onclick = async () => { await saveNote(); viewLearn(v.id, true); };
   $('#sv').onclick = async () => { await saveNote(); const n = nextVerse(); go(n ? '#learn/' + n.id : '#home'); };
+  guardStreak(['#hm', '#again', '#sv']);
 }
 function confirmLeave() {
   return new Promise((resolve) => {
@@ -809,10 +865,10 @@ async function runReview(all) {
           <div class="choices">${shuffle([norm(ws[cur]), ...distractors(ws[cur], pool)]).map((o) => `<button class="choice" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div></div></div>`;
         bind();
         $$('.choice').forEach((b) => b.onclick = () => {
-          if (b.dataset.o === norm(ws[cur])) { b.classList.add('ok'); if (!miss) M.sparkle(b); fx('correct'); $$('.choice').forEach((x) => x !== b && x.classList.add('fade')); got[cur] = miss ? 0.5 : 1; miss = 0; setTimeout(() => { bi++; if (bi >= blanks.length) { const sc = Math.round((Object.values(got).reduce((a, x) => a + x, 0) / blanks.length) * 100); record(sc, blanks.filter((k) => got[k] < 1)); } else draw(); }, 300); }
-          else { fx('wrong'); miss++; b.classList.add('no'); b.disabled = true; }
+          if (b.dataset.o === norm(ws[cur])) { b.classList.add('ok'); if (!miss) { M.sparkle(b); buddyReact('cheer', PRAISE[Math.floor(Math.random() * PRAISE.length)]); } fx('correct'); $$('.choice').forEach((x) => x !== b && x.classList.add('fade')); got[cur] = miss ? 0.5 : 1; miss = 0; setTimeout(() => { bi++; if (bi >= blanks.length) { const sc = Math.round((Object.values(got).reduce((a, x) => a + x, 0) / blanks.length) * 100); record(sc, blanks.filter((k) => got[k] < 1)); } else draw(); }, 300); }
+          else { fx('wrong'); buddyReact('oops', '다시 골라 보자', 1500); miss++; b.classList.add('no'); b.disabled = true; }
         });
-        M.stagger('.choices .choice', document, 60);
+        M.stagger('.choices .choice', document, 60); buddyShow();
       };
       draw();
     } else {
@@ -820,7 +876,7 @@ async function runReview(all) {
         <p class="hint">기억나는 대로 말씀을 적어 보세요.${(prev.weak || []).length ? ` 지난번에 <b style="color:var(--ac)">${(prev.weak || []).length}단어</b>가 약했어요.` : ''}</p>
         <textarea class="input verse" id="fa" style="margin-top:20px;font-size:calc(19px * var(--k))" spellcheck="false"></textarea><div id="fr"></div></div>
         <footer class="learn-foot"><button class="btn" id="hint">첫머리 보기</button><button class="btn pr" id="ck">채점하기</button></footer></div>`;
-      bind();
+      bind(); buddyShow();
       let peek = 0;
       $('#hint').onclick = () => { peek++; toast(ws.slice(0, 2 + peek).join(' ') + ' …', 3000); };
       $('#ck').onclick = () => {
@@ -841,7 +897,9 @@ async function runReview(all) {
       <div class="score-rows grow">${results.map((r) => `<div class="score-row"><span>${esc(r.v.ref)}</span><i><b style="width:${r.score}%"></b></i><span class="num" style="color:${r.score < WEAK_LINE ? 'var(--ac)' : 'inherit'}">${r.score}</span></div>`).join('')}</div>
       <p class="xp num">+${xp} 은혜 점수</p></div><footer class="learn-foot one"><button class="btn pr" id="hm">홈으로</button></footer></div>`;
     M.countUp($('#sb'), avg, 1000); if (avg >= 80) setTimeout(() => { M.sparkle($('#sb'), 24); fx('fanfare'); }, 1000);
+    buddyHide();
     $('#hm').onclick = () => go('#home');
+    guardStreak(['#hm']);
   };
   step();
 }
