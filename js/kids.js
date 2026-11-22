@@ -104,3 +104,33 @@ export function confetti(n = 70) {
   document.body.appendChild(box);
   setTimeout(() => box.remove(), 3400);
 }
+
+/* ───────── 길 옆 장식 · 배경 장면 ───────── */
+const DECO = {
+  tree: '<svg viewBox="0 0 64 80" width="56" height="70"><rect x="28" y="50" width="8" height="24" rx="3" fill="#A0714F"/><circle cx="32" cy="34" r="22" fill="#58C26E"/><circle cx="20" cy="40" r="12" fill="#4CAF62"/><circle cx="44" cy="40" r="12" fill="#4CAF62"/><circle cx="26" cy="26" r="5" fill="#7AD98C"/></svg>',
+  bush: '<svg viewBox="0 0 64 40" width="58" height="36"><circle cx="18" cy="26" r="13" fill="#5BBE70"/><circle cx="34" cy="20" r="16" fill="#6CCB80"/><circle cx="48" cy="27" r="12" fill="#5BBE70"/><circle cx="30" cy="16" r="3" fill="#FF8FA3"/><circle cx="44" cy="22" r="3" fill="#FFD15C"/></svg>',
+  flower: '<svg viewBox="0 0 48 64" width="40" height="54"><path d="M24 30v30" stroke="#4CAF62" stroke-width="4" stroke-linecap="round"/><path d="M24 48c-8-2-12-8-12-12 6 0 11 4 12 12z" fill="#58C26E"/><g fill="#FF8FA3"><circle cx="24" cy="14" r="7"/><circle cx="34" cy="21" r="7"/><circle cx="30" cy="32" r="7"/><circle cx="18" cy="32" r="7"/><circle cx="14" cy="21" r="7"/></g><circle cx="24" cy="24" r="6" fill="#FFD15C"/></svg>',
+  cloud: '<svg viewBox="0 0 80 44" width="72" height="40"><path d="M18 38a12 12 0 0 1 2-24 16 16 0 0 1 30-4 13 13 0 0 1 14 28z" fill="#fff" stroke="#E3EEF7" stroke-width="2"/></svg>',
+  sheep: '<svg viewBox="0 0 64 50" width="56" height="44"><g fill="#fff" stroke="#EADFD3" stroke-width="1.5"><circle cx="20" cy="22" r="10"/><circle cx="32" cy="17" r="11"/><circle cx="44" cy="22" r="10"/><circle cx="26" cy="30" r="10"/><circle cx="40" cy="30" r="10"/></g><rect x="24" y="36" width="5" height="10" rx="2.5" fill="#5A463C"/><rect x="37" y="36" width="5" height="10" rx="2.5" fill="#5A463C"/><ellipse cx="52" cy="22" rx="8" ry="7" fill="#5A463C"/><circle cx="54" cy="21" r="1.4" fill="#fff"/></svg>',
+  chest: '<svg viewBox="0 0 64 56" width="58" height="50"><rect x="8" y="22" width="48" height="28" rx="5" fill="#C98A3D"/><path d="M8 26c0-10 8-16 24-16s24 6 24 16z" fill="#E0A24F"/><rect x="8" y="24" width="48" height="5" fill="#9C6727"/><rect x="28" y="24" width="8" height="12" rx="2" fill="#FFD15C"/><path d="M14 14l3-5M50 14l-3-5M32 8V3" stroke="#FFD15C" stroke-width="2.5" stroke-linecap="round"/></svg>',
+  mountain: '<svg viewBox="0 0 80 56" width="74" height="52"><path d="M2 54L30 12l12 18 8-10 28 34z" fill="#B9A77F"/><path d="M30 12l8 12-5-2-4 4-4-5-4 3z" fill="#fff"/><path d="M42 30l8-10 10 12z" fill="#A69369"/></svg>',
+  palm: '<svg viewBox="0 0 64 80" width="54" height="68"><path d="M33 78c-2-18 0-34 3-46" stroke="#9C6B3F" stroke-width="5" fill="none" stroke-linecap="round"/><g fill="#3E9C74"><path d="M36 30c-10-10-24-8-30 0 10-4 20-2 30 0z"/><path d="M36 30c8-12 22-12 26-4-10-2-18 0-26 4z"/><path d="M36 30c-4-12 2-22 10-24-4 8-6 16-10 24z"/><path d="M36 30c-12 0-20 8-20 16 6-8 12-12 20-16z"/></g></svg>',
+  tent: '<svg viewBox="0 0 72 52" width="66" height="48"><path d="M4 48L36 6l32 42z" fill="#D9A15B"/><path d="M36 6l-8 42h16z" fill="#8C5A2B"/><path d="M36 6v-4" stroke="#8C5A2B" stroke-width="2"/><path d="M37 2l8 3-8 3z" fill="#E0573F"/></svg>',
+  scroll: '<svg viewBox="0 0 64 48" width="54" height="40"><rect x="10" y="8" width="44" height="32" rx="3" fill="#F6E7C6" stroke="#D8C08E" stroke-width="2"/><rect x="4" y="6" width="10" height="36" rx="5" fill="#C9A86A"/><rect x="50" y="6" width="10" height="36" rx="5" fill="#C9A86A"/><path d="M20 18h24M20 25h20M20 32h16" stroke="#B39A66" stroke-width="2" stroke-linecap="round"/></svg>'
+};
+export const decoSVG = (k) => `<span class="deco" aria-hidden="true">${DECO[k] || ''}</span>`;
+export const PLAY_DECO = ['tree', 'flower', 'cloud', 'sheep', 'bush', 'flower', 'cloud', 'tree'];
+export const EXPLORE_DECO = ['mountain', 'palm', 'tent', 'scroll', 'mountain', 'palm'];
+export const UNIT_COLORS = [['#3DAA5C', '#2E8C4A'], ['#9B6BE8', '#7A4FCB'], ['#FF8A3D', '#D96A22'], ['#2F9BE0', '#1F7CB8'], ['#E8578E', '#C23B71'], ['#20A79A', '#16837A']];
+// 홈 위쪽 장면: 하늘, 해, 구름, 언덕
+export function sceneSVG() {
+  return `<svg class="scene-bg" viewBox="0 0 400 180" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9ED8FF"/><stop offset="1" stop-color="#DDF2FF"/></linearGradient></defs>
+    <rect width="400" height="180" fill="url(#sky)"/>
+    <circle cx="350" cy="38" r="20" fill="#FFD95C"/><circle cx="350" cy="38" r="30" fill="#FFD95C" opacity=".25"/>
+    <path d="M60 46a10 10 0 0 1 2-20 14 14 0 0 1 26-3 11 11 0 0 1 10 23z" fill="#fff"/>
+    <path d="M230 30a8 8 0 0 1 1-16 11 11 0 0 1 21-2 9 9 0 0 1 8 18z" fill="#fff" opacity=".9"/>
+    <path d="M0 140c60-40 120-40 190-10s140 20 210-14v64H0z" fill="#8FD6A0"/>
+    <path d="M0 160c80-28 150-20 220 0s120 10 180-6v26H0z" fill="#6CC584"/>
+  </svg>`;
+}

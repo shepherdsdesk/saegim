@@ -221,3 +221,41 @@ html[data-mode="explore"] .node.now .disc { animation-name: pulse-x; }
 html[data-mode="explore"] .node { gap: 12px; margin: 10px 0; }
 html[data-mode="challenge"] .lvbar i { background: #2A3340; }
 html[data-mode="challenge"] .lvbar i b { background: var(--ac); }
+
+/* ═════════ 더 즐거운 배경 (듀오링고식 단원 띠, 길 옆 장식, 하늘 장면) ═════════ */
+html[data-mode="play"] body { background:
+  radial-gradient(circle at 20px 20px, rgba(255,186,120,.16) 3px, transparent 4px) 0 0 / 40px 40px,
+  var(--bg); }
+html[data-mode="explore"] body { background:
+  linear-gradient(rgba(31,122,120,.05) 1px, transparent 1px) 0 0 / 32px 32px,
+  linear-gradient(90deg, rgba(31,122,120,.05) 1px, transparent 1px) 0 0 / 32px 32px,
+  var(--bg); }
+html[data-mode="challenge"] body { background: radial-gradient(900px 500px at 85% -10%, rgba(215,242,91,.10), transparent 60%), radial-gradient(700px 500px at -10% 30%, rgba(124,92,255,.12), transparent 60%), var(--bg); background-attachment: fixed; }
+html[data-mode] .top, html[data-mode] .tabs { background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); }
+
+/* 하늘 장면 인사 */
+.hello.scene { position: relative; overflow: hidden; border-radius: 22px; padding: 26px 18px 34px; margin-top: 8px; border: 2px solid #CDEBFF; box-shadow: 0 4px 0 #CDEBFF; }
+.hello.scene .scene-bg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
+.hello.scene > *:not(.scene-bg) { position: relative; z-index: 1; }
+.hello.scene .bubble { border-color: #fff; box-shadow: 0 3px 0 rgba(0,0,0,.06); }
+.hello.scene .bubble::before { border-color: #fff; }
+
+/* 단원 띠 */
+.unit { align-self: stretch; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 6px; padding: 16px 18px; border-radius: 16px; background: var(--u); color: #fff; box-shadow: 0 4px 0 var(--u2); }
+.unit .ut { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.unit .eyebrow { color: rgba(255,255,255,.85); }
+.unit b { font-family: var(--f-head); font-weight: 400; font-size: calc(21px * var(--k)); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.unit .uc { flex: none; height: 32px; padding: 0 12px; border-radius: 16px; background: rgba(255,255,255,.22); font-weight: 700; display: inline-flex; align-items: center; }
+html[data-mode="play"] .node.done .disc { background: var(--u); box-shadow: 0 5px 0 var(--u2); }
+html[data-mode="play"] .node.done.weak .disc { background: var(--ac); box-shadow: 0 5px 0 #C9571F; }
+
+/* 길 줄과 장식 */
+.prow { position: relative; align-self: stretch; display: flex; justify-content: center; }
+.deco-slot { position: absolute; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.deco-slot.l { left: 6%; } .deco-slot.r { right: 6%; }
+.deco { display: block; }
+.deco svg { display: block; }
+.deco-slot .deco { animation: sway 4s ease-in-out infinite; transform-origin: bottom center; }
+@keyframes sway { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
+@media (min-width: 700px) { .deco-slot.l { left: 12%; } .deco-slot.r { right: 12%; } .deco svg { transform: scale(1.25); } }
+@media (prefers-reduced-motion: reduce) { .deco-slot .deco { animation: none; } }

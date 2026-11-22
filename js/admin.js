@@ -107,6 +107,7 @@ async function courses() {
   const total = A.courses.reduce((s, c) => s + (c.count || 0), 0);
   shell('courses', pageHead('코스와 말씀', `코스 ${A.courses.length}개 · ${fmt(total)}구절`, `
     <a class="btn md" href="assets/saegim-upload-template.xlsx" download="새김_말씀업로드_양식.xlsx">${icon('down', 16)}샘플 양식 받기</a>
+    <a class="btn md" href="assets/saegim-awana-verses.xlsx" download="새김_어와나_클럽별_암송목록.xlsx">${icon('down', 16)}어와나 암송 목록</a>
     <button class="btn md" id="seed">${icon('book', 16)}기본 코스 넣기</button>
     <label class="btn md pr" for="xf" style="cursor:pointer">${icon('up', 16)}엑셀 업로드</label><input type="file" id="xf" accept=".xlsx,.xls,.csv" class="hidden">`),
   `<div class="tbl"><div style="min-width:940px"><div class="tr th" style="grid-template-columns:${CCOLS}"><span>순서</span><span>코스</span><span>보이는 클럽</span><span>구절</span><span>정답 규칙</span><span>공개</span><span></span></div>
@@ -177,12 +178,13 @@ async function importExcel(file) {
   const wb = XLSX.read(buf, { type: 'array' });
   const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
   const pick = (r, ...ks) => { for (const k of ks) { const hit = Object.keys(r).find((x) => x.replace(/\s|\(.*\)/g, '') === k); if (hit && String(r[hit]).trim()) return String(r[hit]).trim(); } return ''; };
-  const groups = {}; const errs = [];
+  const groups = {}; const errs = []; const clubsOf = {};
   rows.forEach((r, i) => {
     const course = pick(r, '코스', '묶음'); const ref = cleanRef(pick(r, '장절', '주소')); const text = pick(r, '본문').replace(/\s+/g, ' ');
     if (!course && !ref && !text) return;
     if (!course || !ref || !text || course.startsWith('예)')) { if (!course.startsWith('예)')) errs.push(i + 2); return; }
     (groups[course] = groups[course] || []).push({ no: Number(pick(r, '번호')) || 0, topic: pick(r, '주제'), ref, text });
+    const cl = pick(r, '클럽'); if (cl) { clubsOf[course] = clubsOf[course] || new Set(); cl.split(/[,·/\s]+/).map(findClub).filter(Boolean).forEach((x) => clubsOf[course].add(x)); if (/어른/.test(cl)) clubsOf[course].add('adult'); }
   });
   const names = Object.keys(groups);
   if (!names.length) return toast('올릴 말씀을 찾지 못했습니다. 양식을 확인해 주세요');
@@ -194,30 +196,30 @@ async function importExcel(file) {
     onMount(el, close) {
       $('#go', el).onclick = async () => {
         $('#go', el).disabled = true; $('#go', el).textContent = '저장 중…';
-        for (const n of names) await saveCourse(n, groups[n]);
+        for (const n of names) await saveCourse(n, groups[n], null, clubsOf[n] ? [...clubsOf[n]] : undefined);
         close(); toast('말씀을 올렸습니다'); await refresh(); courses();
       };
     }
   });
 }
-async function saveCourse(name, verses, fixedId) {
+async function saveCourse(name, verses, fixedId, clubs) {
   const ex = A.courses.find((c) => c.name === name || c.id === fixedId);
   const id = ex ? ex.id : (fixedId || 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5));
   const ops = [];
   if (ex) { const old = await DB.list('verses', { where: [['courseId', '==', id]] }); old.forEach((v) => ops.push({ path: 'verses/' + v.id, del: true })); }
   verses.forEach((v) => ops.push({ path: `verses/${id}-${String(v.no).padStart(3, '0')}`, merge: false, data: { courseId: id, no: v.no, topic: v.topic || '', ref: v.ref, text: v.text } }));
-  ops.push({ path: 'courses/' + id, data: { name, count: verses.length, sample: `${verses[0].topic ? verses[0].topic + ' · ' : ''}${verses[0].ref}`, published: ex ? ex.published !== false : true, order: ex ? ex.order ?? A.courses.length : A.courses.length, updatedAt: Date.now() } });
+  ops.push({ path: 'courses/' + id, data: { name, count: verses.length, sample: `${verses[0].topic ? verses[0].topic + ' · ' : ''}${verses[0].ref}`, ...(clubs ? { clubs } : {}), published: ex ? ex.published !== false : true, order: ex ? ex.order ?? A.courses.length : A.courses.length, updatedAt: Date.now() } });
   await DB.batch(ops);
 }
 async function seedDialog() {
   const data = await fetch('data/seed-courses.json').then((r) => r.json());
-  modal(`<h3>기본 코스 넣기</h3><p class="muted small" style="margin:0 0 16px;line-height:1.7">Shepherd's Desk 말씀 자료(개역개정)를 그대로 넣습니다.</p>
-    ${data.map((c, i) => `<label class="tr" style="display:grid;grid-template-columns:28px 1fr 90px;align-items:center;min-height:56px;border-bottom:1px solid var(--line);cursor:pointer"><input type="checkbox" data-i="${i}" ${i === 0 ? 'checked' : ''} style="width:18px;height:18px"><b>${esc(c.name)}</b><span class="head num">${c.verses.length}구절</span></label>`).join('')}
+  modal(`<h3>기본 코스 넣기</h3><p class="muted small" style="margin:0 0 16px;line-height:1.7">Shepherd's Desk 말씀 자료(개역개정)와 어와나 클럽별 암송 목록(개역한글)을 넣습니다. 어와나 목록은 정해진 클럽에게만 보입니다.</p>
+    ${data.map((c, i) => `<label class="tr" style="display:grid;grid-template-columns:28px 1fr 90px;align-items:center;min-height:56px;border-bottom:1px solid var(--line);cursor:pointer"><input type="checkbox" data-i="${i}" ${i === 0 ? 'checked' : ''} style="width:18px;height:18px"><div style="display:flex;flex-direction:column;gap:2px;min-width:0"><b>${esc(c.name)}</b>${c.clubs ? `<span class="small muted">${esc(c.clubs.map(clubName).join(' · '))} · 개역한글</span>` : ''}</div><span class="head num">${c.verses.length}구절</span></label>`).join('')}
     <div class="actions"><button class="btn md" data-close>취소</button><button class="btn md pr" id="go">넣기</button></div>`, {
     onMount(el, close) {
       $('#go', el).onclick = async () => {
         $('#go', el).disabled = true; $('#go', el).textContent = '넣는 중…';
-        for (const cb of $$('[data-i]', el)) if (cb.checked) { const c = data[+cb.dataset.i]; await saveCourse(c.name, c.verses, c.id); await refresh(); }
+        for (const cb of $$('[data-i]', el)) if (cb.checked) { const c = data[+cb.dataset.i]; await saveCourse(c.name, c.verses, c.id, c.clubs); await refresh(); }
         close(); toast('기본 코스를 넣었습니다'); courses();
       };
     }

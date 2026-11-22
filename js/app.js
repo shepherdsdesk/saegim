@@ -6,7 +6,7 @@ import {
   MODES, resolveMode, applyMode, clubOf, clubName, GRADES, newCode
 } from './core.js';
 import { Sound } from './sound.js';
-import { lambSVG, callName, starsOf, starsHTML, stickerSVG, stickerName, STICKER_COUNT, PLACES, PLACE_SIZE, placeOf, badgeSVG, levelOf, exploreTitle, challengeTitle, confetti } from './kids.js';
+import { lambSVG, callName, starsOf, starsHTML, stickerSVG, stickerName, STICKER_COUNT, PLACES, PLACE_SIZE, placeOf, badgeSVG, levelOf, exploreTitle, challengeTitle, confetti, decoSVG, PLAY_DECO, EXPLORE_DECO, UNIT_COLORS, sceneSVG } from './kids.js';
 
 const root = $('#root');
 const S = { mode: 'adult', settings: null, user: null, prog: null, courses: [], verses: {}, course: null, logo: null, uid: null, installEvt: null };
@@ -51,7 +51,7 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.in
   if (pv && ['play', 'explore', 'challenge', 'adult'].includes(pv)) {
     // 관리자가 모드를 미리 보는 화면 (기록은 저장하지 않음)
     S.preview = true;
-    S.user = { code: 'PREVIEW', name: '새김이', team: null, club: null, grade: null, mode: pv };
+    S.user = { code: 'PREVIEW', name: '새김이', team: null, club: ({ play: 'sparks', explore: 'tnt', challenge: 'trek' })[pv] || null, grade: null, mode: pv };
     await loadUserData().catch(() => {});
     if (!S.prog) { S.prog = { v: {}, notes: {} }; }
     S.prog.modePick = null; S.prog.xp = S.prog.xp || 130; S.prog.streak = 3; S.prog.lastDay = today();
@@ -92,6 +92,9 @@ async function loadUserData() {
     S.settings.weeklyVerse ? DB.get('verses/' + S.settings.weeklyVerse).catch(() => null) : Promise.resolve(null)
   ]);
   S.courses = cs.filter(courseFor).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+  // 내 클럽용 코스가 있으면 그 코스만 (아이들에게 어른용 말씀이 나오지 않도록)
+  const my = clubOf(S.user); const mine = my ? S.courses.filter((c) => (c.clubs || []).includes(my)) : [];
+  if (mine.length) S.courses = mine;
   S.prog = prog || {};
   S.prog.v = S.prog.v || {}; S.prog.notes = S.prog.notes || {};
   const pick = S.prog.course && S.courses.find((c) => c.id === S.prog.course) ? S.prog.course : (S.courses[0] && S.courses[0].id);
@@ -363,7 +366,15 @@ function bindChips(again) {
 const WAVE = [0, 1, 1.6, 1, 0, -1, -1.6, -1];
 function pathHTML(vs, nextIdx, explore) {
   let out = ''; let row = 0;
+  let deco = 0;
   vs.forEach((v, i) => {
+    if (!explore && i % PLACE_SIZE === 0) {
+      const g = Math.floor(i / PLACE_SIZE); const grp = vs.slice(i, i + PLACE_SIZE); const got = grp.filter((x) => S.prog.v[x.id]).length;
+      const [c1, c2] = UNIT_COLORS[g % UNIT_COLORS.length];
+      const title = grp.map((x) => x.topic).filter(Boolean)[0] || '';
+      out += `<div class="unit" style="--u:${c1};--u2:${c2}"><div class="ut"><span class="eyebrow">${g + 1}단원 · 말씀 ${i + 1}~${i + grp.length}</span><b>${esc(title || (g + 1) + '단원')}</b></div><span class="uc num">${got}/${grp.length}</span></div>`;
+      row = 0;
+    }
     if (explore && i % PLACE_SIZE === 0) {
       const g = Math.floor(i / PLACE_SIZE); const grp = vs.slice(i, i + PLACE_SIZE); const got = grp.filter((x) => S.prog.v[x.id]).length;
       const open = got === grp.length;
@@ -372,11 +383,14 @@ function pathHTML(vs, nextIdx, explore) {
     }
     const it = S.prog.v[v.id]; const done = !!it; const now = i === nextIdx; const locked = !done && !now;
     const x = WAVE[row % WAVE.length]; row++;
+    const g = Math.floor(i / PLACE_SIZE); const [c1, c2] = UNIT_COLORS[g % UNIT_COLORS.length];
+    const showDeco = row % 3 === 2 || (!explore && i % PLACE_SIZE === 4);
+    const dk = !explore && i % PLACE_SIZE === 4 ? 'chest' : (explore ? EXPLORE_DECO : PLAY_DECO)[deco++ % (explore ? EXPLORE_DECO.length : PLAY_DECO.length)];
     const inner = done ? (S.mode === 'play' ? starsHTML(starsOf(it.score ?? 100), 13) : `<span class="num">${it.score ?? ''}</span>`) : now ? '' : icon('lock', 18);
     const face = done ? icon('check', 26) : now ? (S.mode === 'play' ? lambSVG(52, 'happy') : `<span class="num">${v.no}</span>`) : `<span class="num">${v.no}</span>`;
     const tag = locked ? 'div' : 'a';
-    out += `<${tag} class="node ${done ? 'done' : ''} ${now ? 'now' : ''} ${locked ? 'locked' : ''} ${done && (it.score ?? 100) < WEAK_LINE ? 'weak' : ''}" style="--x:${x}" ${locked ? '' : `href="#learn/${v.id}"`} aria-label="${esc(v.ref)}">
-      <span class="disc">${face}</span>${now ? `<span class="go">시작</span>` : `<span class="sub">${inner}</span>`}${done || now ? `<span class="cap">${esc(v.topic || v.ref)}</span>` : ''}</${tag}>`;
+    out += `<div class="prow" style="--x:${x}">${showDeco ? `<span class="deco-slot ${x > 0 ? 'l' : 'r'}">${decoSVG(dk)}</span>` : ''}<${tag} class="node ${done ? 'done' : ''} ${now ? 'now' : ''} ${locked ? 'locked' : ''} ${done && (it.score ?? 100) < WEAK_LINE ? 'weak' : ''}" style="--x:${x};--u:${c1};--u2:${c2}" ${locked ? '' : `href="#learn/${v.id}"`} aria-label="${esc(v.ref)}">
+      <span class="disc">${face}</span>${now ? `<span class="go">시작</span>` : `<span class="sub">${inner}</span>`}${done || now ? `<span class="cap">${esc(v.topic || v.ref)}</span>` : ''}</${tag}></div>`;
   });
   return `<div class="path">${out}</div>`;
 }
@@ -399,7 +413,7 @@ async function homePlay() {
   const n = currentStreak();
   const say = !focus ? (vs.length ? '와, 다 했다! 정말 멋져!' : '조금만 기다려 줘!') : limitHit ? '오늘 분량 끝! 하나 더 해 볼까?' : n > 1 ? `${n}일째 등불이 켜져 있어!` : '오늘도 말씀 새기러 가자!';
   root.innerHTML = `<div class="shell">${topbar(streakHTML())}<main class="main">
-    <section class="hello fade-in">${lambSVG(84, limitHit ? 'cheer' : 'happy')}<div class="bubble"><b>${esc(callName(S.user.name))}!</b><span>${esc(say)}</span></div></section>
+    <section class="hello scene fade-in">${sceneSVG()}${lambSVG(84, limitHit ? 'cheer' : 'happy')}<div class="bubble"><b>${esc(callName(S.user.name))}!</b><span>${esc(say)}</span></div></section>
     <section class="kcard today fade-in">
       <span class="eyebrow ac">${H.weekly ? '이번 주 암송' : '오늘의 말씀'}</span>
       ${focus ? `<h1 class="ref head">${esc(focus.ref)}</h1><p class="vtext verse">${esc(focus.text)}</p>
